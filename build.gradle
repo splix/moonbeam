@@ -1,0 +1,108 @@
+buildscript {
+    repositories {
+        mavenLocal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.3.11'
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.11'
+    }
+}
+
+plugins {
+    id 'java'
+    id 'groovy'
+    id 'idea'
+    id 'maven'
+    id 'application'
+
+    id 'com.google.protobuf' version '0.8.11'
+    id 'org.jetbrains.kotlin.jvm' version '1.3.11'
+    id "com.google.cloud.tools.jib" version "1.3.0"
+    id 'org.springframework.boot' version '2.1.4.RELEASE'
+    id 'io.spring.dependency-management' version '1.0.6.RELEASE'
+}
+
+
+group = 'io.emeraldpay.polkadotcrawler'
+version = '0.1-SNAPSHOT'
+
+targetCompatibility = '1.8'
+sourceCompatibility = '1.8'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    jcenter()
+    maven { url "http://repo.spring.io/milestone" }
+}
+
+configurations {
+    compile.exclude group: "commons-logging"
+    compile.exclude group: "ch.qos.logback"
+    compile.exclude group: "org.slf4j", module: "slf4j-jdk14"
+    compile.exclude group: "org.slf4j", module: "log4j-over-slf4j"
+}
+
+dependencies {
+    compile 'io.libp2p:jvm-libp2p-minimal:0.3.1-RELEASE'
+
+    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    compile "org.jetbrains.kotlin:kotlin-reflect"
+
+    compile "org.springframework:spring-core:$springVersion"
+    compile "org.springframework:spring-context:$springVersion"
+    compile "io.projectreactor:reactor-core:$reactorVersion"
+    compile "io.projectreactor.netty:reactor-netty:$reactorNettyVersion"
+    compile "io.projectreactor.addons:reactor-extra:$reactorVersion"
+    compile 'io.projectreactor.kotlin:reactor-kotlin-extensions:1.0.0.M1'
+
+    compile 'commons-io:commons-io:2.6'
+    compile 'org.apache.commons:commons-lang3:3.9'
+    compile 'org.apache.commons:commons-collections4:4.3'
+    compile 'javax.annotation:javax.annotation-api:1.3.2'
+    compile 'org.bouncycastle:bcprov-jdk15on:1.61'
+
+    compile("org.springframework.boot:spring-boot-starter:$springBootVersion") {
+        exclude module: 'spring-boot-starter-logging'
+    }
+
+    compile "org.slf4j:slf4j-api:$slf4jVersion"
+    compile "org.apache.logging.log4j:log4j-slf4j-impl:2.11.1"
+    compile "org.slf4j:jul-to-slf4j:$slf4jVersion"
+    compile "org.slf4j:jcl-over-slf4j:$slf4jVersion"
+
+
+    testCompile "org.codehaus.groovy:groovy:$groovyVersion"
+    testCompile 'cglib:cglib-nodep:3.2.12'
+    testCompile "org.spockframework:spock-core:$spockVersion"
+    testCompile "io.projectreactor:reactor-test:$reactorVersion"
+    testCompile 'org.objenesis:objenesis:3.0.1'
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+application {
+    mainClassName = 'io.emeraldpay.polkadotcrawler.StarterKt'
+}
+
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:${protocVersion}" }
+    plugins {
+    }
+    generateProtoTasks {
+    }
+}
+
+afterEvaluate {
+    generateProto.dependsOn(clean)
+}

@@ -1,0 +1,35 @@
+= Polkadot Network Crawler
+
+Crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
+details about the node (software version, etc) and its peers to continue scan.
+
+NOTE: The project is in the _early stage_ of development
+
+== Run Instructions
+
+=== Using Gradle
+
+Gradle could be installed from the website https://gradle.org/, or through SDKMAN https://sdkman.io/
+
+.To run crawler:
+----
+gradle run
+----
+
+== Build Instructions
+
+Requirements:
+
+- Java 8+
+- Gradle
+
+----
+gradle build
+----
+
+== License
+
+The core project code is released under Apache 2.0 license.
+
+File `src/proto/dht.proto`, with the definition of DHT Protobuf messages, is taken from libp2p specification and has
+the same license as it specified for the specification.
