@@ -16,6 +16,7 @@ import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import reactor.extra.processor.TopicProcessor
 import reactor.netty.Connection
 import reactor.netty.NettyInbound
@@ -194,19 +195,22 @@ class CrawlerClient(
                 .skipUntil { secio.isEstablished() }
                 .transform(SizePrefixed.Standard().reader())
                 .transform(secio.frameDecoder())
+                .doOnError { t -> log.warn("Failed to decrypt channel", t) }
                 .share()
 
-        secio.readNonce(decrypted).subscribe()
+        val receiveSecioNonce = secio.readNonce(decrypted)
 
-        decrypted
+        val listenMplex = Flux.from(decrypted)
+                .skip(1) //nonce
                 .transform(multistream.readProtocol("/mplex/6.7.0"))
                 .map(mplex::onNext)
                 .doOnError { log.warn("Failed to process Mplex message", it) }
-                .subscribe()
 
-        val mplexSender = Flux.from(mplex.start())
+        val mplexOutbound = Flux.just(mplex)
+                .flatMap { it.start() }
                 .map(secio.encoder())
                 .doOnError { log.error("Failed to start Mplex", it) }
+
 
         val mplexResponse = respondStandardRequests(mplex)
 
@@ -215,13 +219,21 @@ class CrawlerClient(
                 requestDht(mplex)
         )
 
-        mplexResponse.subscribe()
         processors.subscribe(results)
 
-        val main: Publisher<Void> = outbound.send(Flux.concat(proposeSecio, establishSecio, mplexSender))
+        val main: Publisher<Void> = outbound.send(
+                Flux.concat(
+                        proposeSecio,
+                        establishSecio,
+                        receiveSecioNonce.thenMany(mplexOutbound)
+                )
+        )
 
-
-        return main
+        return Flux.merge(
+                Flux.from(main).subscribeOn(Schedulers.elastic()),
+                Flux.from(listenMplex.then()).subscribeOn(Schedulers.elastic()),
+                Flux.from(mplexResponse).subscribeOn(Schedulers.elastic())
+        )
     }
 
 

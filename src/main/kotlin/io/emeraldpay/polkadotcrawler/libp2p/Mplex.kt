@@ -29,8 +29,7 @@ class Mplex: AutoCloseable {
 
     fun start(): Publisher<ByteBuf> {
         val starter = multistream.headerFor("/mplex/6.7.0")
-        outbound.onNext(starter)
-        return outbound
+        return Flux.concat(Mono.just(starter), outbound)
     }
 
     override fun close() {
