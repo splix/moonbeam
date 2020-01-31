@@ -6,6 +6,7 @@ import io.emeraldpay.polkadotcrawler.crawler.CrawlerClient
 import io.emeraldpay.polkadotcrawler.discover.Discovered
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.proto.Dht
+import io.emeraldpay.polkadotcrawler.state.PeerDetails
 import io.libp2p.core.PeerId
 import io.libp2p.core.crypto.KEY_TYPE
 import io.libp2p.core.crypto.generateKeyPair
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
+import java.time.Duration
 import java.util.function.Consumer
 
 @Service
@@ -55,26 +57,42 @@ class Crawler(
     override fun accept(address: Multiaddr) {
         try {
             val crawler = CrawlerClient(address, agent, keys)
+            val peerDetails = PeerDetails(address)
+            var peersReceived = false
             crawler.connect()
 //                    .subscribeOn(Schedulers.elastic())
+                    .takeUntil { peersReceived && peerDetails.filled() }
+                    .timeout(Duration.ofSeconds(60))
+                    .doFinally { peerDetails.dump() }
                     .subscribe {
-                        log.info("Received ${it.dataType} from $address")
+                        log.debug("Received ${it.dataType} from $address")
 
-                        if (it.dataType == CrawlerClient.DataType.DHT_NODES) {
-                            val dht = it.cast(Dht.Message::class.java)
-                            dht.data.closerPeersList.flatMap {
-                                it.addrsList
-                            }.mapNotNull {
-                                try {
-                                    Multiaddr(it.toByteArray())
-                                } catch (e: java.lang.IllegalArgumentException) {
-                                    log.debug("Invalid address")
-                                    null
+                        when (it.dataType) {
+
+                            CrawlerClient.DataType.DHT_NODES -> {
+                                peersReceived = true
+                                val dht = it.cast(Dht.Message::class.java)
+                                peerDetails.add(dht.data)
+
+                                dht.data.closerPeersList.flatMap {
+                                    it.addrsList
+                                }.mapNotNull {
+                                    try {
+                                        Multiaddr(it.toByteArray())
+                                    } catch (e: java.lang.IllegalArgumentException) {
+                                        log.debug("Invalid address")
+                                        null
+                                    }
+                                }.filter {
+                                    publicPeersOnly.test(it)
+                                }.forEach {
+                                    discovered.submit(it)
                                 }
-                            }.filter {
-                                publicPeersOnly.test(it)
-                            }.forEach {
-                                discovered.submit(it)
+                            }
+
+                            CrawlerClient.DataType.IDENTIFY -> {
+                                val id = it.cast(IdentifyOuterClass.Identify::class.java)
+                                peerDetails.add(id.data)
                             }
                         }
 

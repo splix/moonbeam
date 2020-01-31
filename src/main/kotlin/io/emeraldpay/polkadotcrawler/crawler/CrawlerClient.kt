@@ -10,6 +10,8 @@ import io.libp2p.core.multiformats.Protocol
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.ConnectTimeoutException
+import io.netty.handler.logging.LogLevel
+import io.netty.handler.logging.LoggingHandler
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -53,7 +55,7 @@ class CrawlerClient(
 
 
     fun connect(): Flux<Data<*>> {
-        log.info("Connect to $remote")
+        log.debug("Connect to $remote")
         val host = getHost()
         val port = remote.getStringComponent(Protocol.TCP)!!.toInt()
 
@@ -62,29 +64,33 @@ class CrawlerClient(
                     .host(host)
                     .port(port)
                     .handle(::handle)
-                    .connectNow(Duration.ofSeconds(10))
+                    .connectNow(Duration.ofSeconds(15))
 
             connection.onDispose().subscribe {
-                log.debug("Connection to $remote closed")
+                log.debug("Disconnected from $remote")
             }
+            return Flux.from(results)
+                    .doFinally {
+                        connection.dispose()
+                    }
         } catch (e: ConnectTimeoutException) {
-            log.warn("Timeout to connect to $remote")
+            log.debug("Timeout to connect to $remote")
         } catch (e: IllegalStateException) {
-            log.warn("Failed to connect to $remote. Message: ${e.message}")
+            log.debug("Failed to connect to $remote. Message: ${e.message}")
         } catch (e: UnknownHostException) {
             log.warn("Invalid remote address: $remote")
         } catch (e: Throwable) {
             log.error("Unresolved exception ${e.javaClass.name}: ${e.message}")
         }
 
-        return Flux.from(results)
+        return Flux.empty()
     }
 
-    fun requestDht(mplex: Mplex) {
-        mplex.newStream(object: Mplex.Handler {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound) {
+    fun requestDht(mplex: Mplex): Mono<Data<Dht.Message>> {
+        return mplex.newStream(object: Mplex.Handler<Mono<Data<Dht.Message>>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Data<Dht.Message>> {
                 val dht = DhtProtocol()
-                Flux.from(inboud)
+                val result = Flux.from(inboud)
                         .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("DHT PACKET"))
                         .transform(multistream.readProtocol("/ipfs/kad/1.0.0", false))
@@ -97,28 +103,26 @@ class CrawlerClient(
                         .take(1).single().timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("DHT")))
                         .doOnError {
                             if (it is DataTimeoutException) {
-                                log.warn("Timeout for ${it.name} from $remote")
+                                log.debug("Timeout for ${it.name} from $remote")
                             } else {
                                 log.warn("DHT not received", it)
                             }
                         }
-                        .subscribe {
-                            log.info("Received DHT")
-                            results.onNext(Data(DataType.DHT_NODES, it))
-                        }
+                        .onErrorResume { Mono.empty() }
+                        .map { Data(DataType.DHT_NODES, it) }
                 val start = Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))
-                outboud.send(
+                return outboud.send(
                         Flux.concat(start, dht.start())
-                )
+                ).then(result)
             }
         })
     }
 
-    fun requestIdentify(mplex: Mplex) {
-        mplex.newStream(object: Mplex.Handler {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound) {
+    fun requestIdentify(mplex: Mplex): Mono<Data<IdentifyOuterClass.Identify>> {
+        return mplex.newStream(object: Mplex.Handler<Mono<Data<IdentifyOuterClass.Identify>>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Data<IdentifyOuterClass.Identify>> {
                 val identify = IdentifyProtocol()
-                Flux.from(inboud)
+                val result  = Flux.from(inboud)
                         .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("ID PACKET"))
                         .transform(multistream.readProtocol("/ipfs/id/1.0.0", false))
@@ -128,24 +132,22 @@ class CrawlerClient(
                         .take(1).single().timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("Identify")))
                         .doOnError {
                             if (it is DataTimeoutException) {
-                                log.warn("Timeout for ${it.name} from $remote")
+                                log.debug("Timeout for ${it.name} from $remote")
                             } else {
                                 log.warn("Identity not received", it)
                             }
                         }
-                        .subscribe {
-                            log.info("Received Identify")
-                            results.onNext(Data(DataType.IDENTIFY, it))
-                        }
+                        .onErrorResume { Mono.empty() }
+                        .map { Data(DataType.IDENTIFY, it) }
                 val start = Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))
-                outboud.send(start)
+                return outboud.send(start).then(result)
             }
         })
     }
 
-    fun respondStandardRequests(mplex: Mplex) {
-        mplex.receiveStreams(object: Mplex.Handler {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound) {
+    fun respondStandardRequests(mplex: Mplex): Mono<Void> {
+        return mplex.receiveStreams(object: Mplex.Handler<Mono<Void>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Void> {
                 val repl = Flux.from(inboud)
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
@@ -162,9 +164,9 @@ class CrawlerClient(
                             }
                             Flux.empty<ByteBuf>()
                         }
-                outboud.send(repl)
+                return outboud.send(repl)
             }
-        })
+        }).flatMap { it }.then()
     }
 
     fun handle(inbound: NettyInbound, outbound: NettyOutbound): Publisher<Void> {
@@ -202,11 +204,20 @@ class CrawlerClient(
                 .map(secio.encoder())
                 .doOnError { log.error("Failed to start Mplex", it) }
 
-        respondStandardRequests(mplex)
-        requestIdentify(mplex)
-        requestDht(mplex)
+        val mplexResponse = respondStandardRequests(mplex)
 
-        return outbound.send(Flux.concat(proposeSecio, establishSecio, mplexSender))
+        val processors: Publisher<Data<*>> = Flux.merge(
+                requestIdentify(mplex),
+                requestDht(mplex)
+        )
+
+        mplexResponse.subscribe()
+        processors.subscribe(results)
+
+        val main: Publisher<Void> = outbound.send(Flux.concat(proposeSecio, establishSecio, mplexSender))
+
+
+        return main
     }
 
 
@@ -216,7 +227,13 @@ class CrawlerClient(
 
     enum class DataType(val clazz: Class<out Any>) {
         IDENTIFY(IdentifyOuterClass.Identify::class.java),
-        DHT_NODES(Dht.Message::class.java)
+        DHT_NODES(Dht.Message::class.java),
+        FINALIZED(FinalizedType::class.java)
+    }
+
+    enum class FinalizedType {
+        SENDER,
+        MPLEX_RESPONSE
     }
 
     class Data<T>(

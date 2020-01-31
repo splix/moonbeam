@@ -1,5 +1,6 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.libp2p.core.crypto.PrivKey
 import io.libp2p.core.crypto.PubKey
 import io.libp2p.core.crypto.sha256
@@ -191,6 +192,7 @@ class Secio(
 
     fun encoder(): java.util.function.Function<ByteBuf, ByteBuf> {
         return java.util.function.Function {
+//            DebugCommons.trace("ENCRYPT", it)
             val cipherText = processBytes(localCipher, it.toByteArray())
             val macArr = updateMac(localParams, cipherText)
             Unpooled.wrappedBuffer(
@@ -214,6 +216,7 @@ class Secio(
                     throw MacMismatch()
 
                 val clearText = Unpooled.wrappedBuffer(processBytes(remoteCipher, cipherBytes))
+//                DebugCommons.trace("DECRYPTED", clearText)
                 clearText
             }
         }

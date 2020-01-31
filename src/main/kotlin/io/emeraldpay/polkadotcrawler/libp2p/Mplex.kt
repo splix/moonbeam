@@ -1,15 +1,18 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.Disposable
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 import reactor.extra.processor.TopicProcessor
+import java.io.Closeable
 import java.util.concurrent.atomic.AtomicLong
 
-class Mplex {
+class Mplex: AutoCloseable {
 
     companion object {
         private val log = LoggerFactory.getLogger(Mplex::class.java)
@@ -26,6 +29,11 @@ class Mplex {
         val starter = multistream.headerFor("/mplex/6.7.0")
         outbound.onNext(starter)
         return outbound
+    }
+
+    override fun close() {
+        messages.dispose()
+        outbound.dispose()
     }
 
     fun parse(msg: ByteBuf): List<Message> {
@@ -67,19 +75,20 @@ class Mplex {
                 }
     }
 
-    fun newStream(handler: Handler) {
+    fun <T> newStream(handler: Handler<T>): T {
         val id = seq.incrementAndGet()
         val stream: Publisher<ByteBuf> = getMessages(messages, id, Flag.MessageReceiver)
         val msg = Message(Header(Flag.NewStream, id), Unpooled.wrappedBuffer("stream $id".toByteArray()))
         outbound.onNext(msg.encode())
-        handler.handle(id, stream, MplexOutbound(id, true, outbound))
+        return handler.handle(id, stream, MplexOutbound(id, true, outbound))
     }
 
-    fun receiveStreams(handler: Handler) {
+    fun <T> receiveStreams(handler: Handler<T>): Flux<T> {
         val f = Flux.from(messages).share().cache(1)
-        Flux.from(f).filter {
+        val result = Flux.from(f).filter {
                     it.header.flag == Flag.NewStream
-                }.subscribe { init ->
+                }
+                .map { init ->
                     val id = init.header.id
                     val stream: Publisher<ByteBuf> = getMessages(f, id, Flag.MessageInitiator)
                     val outbound = MplexOutbound(id, false, outbound)
@@ -92,8 +101,9 @@ class Mplex {
                                 log.debug("Close stream $id")
                                 outbound.close()
                             }
-                    handler.handle(id, stream, outbound)
+                    return@map handler.handle(id, stream, outbound)
                 }
+        return result
     }
 
     class Header(val flag: Flag, val id: Long) {
@@ -149,10 +159,10 @@ class Mplex {
         }
     }
 
-    class MplexOutbound(val streamId: Long, val initiator: Boolean, private val outbound: TopicProcessor<ByteBuf>) {
-        private var opened: Disposable? = null
-        fun send(value: Publisher<ByteBuf>) {
-            opened = Flux.from(value)
+    class MplexOutbound(val streamId: Long, val initiator: Boolean, private val outbound: TopicProcessor<ByteBuf>): AutoCloseable {
+
+        fun send(value: Publisher<ByteBuf>): Mono<Void> {
+            return Flux.from(value)
                     .map {
                         val flag = if (initiator) {
                             Flag.MessageInitiator
@@ -162,17 +172,18 @@ class Mplex {
                         val msg = Message(Header(flag, streamId), it)
                         msg.encode()
                     }
-                    .subscribe {
+                    .doOnNext {
                         outbound.onNext(it)
                     }
+                    .then()
         }
 
-        fun close() {
-            opened?.dispose()
+        override fun close() {
+            //TODO
         }
     }
 
-    interface Handler {
-        fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: MplexOutbound)
+    interface Handler<T> {
+        fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: MplexOutbound): T
     }
 }

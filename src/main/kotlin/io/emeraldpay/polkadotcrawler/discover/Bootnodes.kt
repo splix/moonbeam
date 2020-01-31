@@ -15,7 +15,7 @@ class Bootnodes(
 
         private val NODES = listOf(
                 // try localhost
-//                "/ip4/127.0.0.1/tcp/30333",
+                "/ip4/127.0.0.1/tcp/30333",
 
                 // try kusame bootnodes
                 "/dns4/p2p.cc3-0.kusama.network/tcp/30100/p2p/QmeCit3Nif4VfNqrEJsdYHZGcKzRCnZvGxg6hha1iNj4mk",
