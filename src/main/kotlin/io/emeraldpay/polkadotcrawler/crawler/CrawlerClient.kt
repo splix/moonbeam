@@ -152,14 +152,18 @@ class CrawlerClient(
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
                                 val msg = signal.get()!!
-                                if (msg.toString(Charset.defaultCharset()).contains("/ipfs/ping/1.0.0")) {
-                                    val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
-                                    return@switchOnFirst Flux.concat(start, flux.skip(1))
-                                } else if (msg.toString(Charset.defaultCharset()).contains("/ipfs/id/1.0.0")) {
-                                    val value = Mono.just(Unpooled.wrappedBuffer(agent.toByteArray()))
-                                    return@switchOnFirst Flux.concat(value)
-                                } else {
-                                    log.debug("Request to an unsupported protocol")
+                                try {
+                                    if (msg.toString(Charset.defaultCharset()).contains("/ipfs/ping/1.0.0")) {
+                                        val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
+                                        return@switchOnFirst Flux.concat(start, flux.skip(1))
+                                    } else if (msg.toString(Charset.defaultCharset()).contains("/ipfs/id/1.0.0")) {
+                                        val value = Mono.just(Unpooled.wrappedBuffer(agent.toByteArray()))
+                                        return@switchOnFirst Flux.concat(value)
+                                    } else {
+                                        log.debug("Request to an unsupported protocol")
+                                    }
+                                } finally {
+                                    msg.release()
                                 }
                             }
                             Flux.empty<ByteBuf>()

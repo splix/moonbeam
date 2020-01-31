@@ -14,7 +14,11 @@ class IdentifyProtocol {
 
     fun parse(data: ByteBuf): IdentifyOuterClass.Identify {
 //        DebugCommons.trace("PARSE ID", data)
-        return IdentifyOuterClass.Identify.parseFrom(ByteBufInputStream(data))
+        try {
+            return IdentifyOuterClass.Identify.parseFrom(ByteBufInputStream(data))
+        } finally {
+            data.release()
+        }
     }
 
 }

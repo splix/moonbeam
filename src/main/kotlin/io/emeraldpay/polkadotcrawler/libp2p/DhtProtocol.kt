@@ -35,9 +35,13 @@ class DhtProtocol {
 
     fun parse(data: ByteBuf): Dht.Message {
 //        DebugCommons.trace("PARSE DHT", it)
-        return Dht.Message.parseFrom(
-                ByteBufInputStream(data)
-        )
+        try {
+            return Dht.Message.parseFrom(
+                    ByteBufInputStream(data)
+            )
+        } finally {
+            data.release()
+        }
     }
 
 }

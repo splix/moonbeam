@@ -2,6 +2,7 @@ package io.emeraldpay.polkadotcrawler.libp2p
 
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.CodedOutputStream
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import org.slf4j.LoggerFactory
@@ -41,7 +42,7 @@ class SizePrefixed {
             return scanForExpected(data.skipBytes(len))
         }
 
-        fun fullyRead(): Predicate<ByteBuf> {
+        fun isFullyRead(): Predicate<ByteBuf> {
             var expect = 0
             return Predicate {
                 var copy = it.slice()
@@ -63,16 +64,23 @@ class SizePrefixed {
         }
 
         fun split(data: ByteBuf): List<ByteBuf> {
-            val result = ArrayList<ByteBuf>()
+            if (Unpooled.EMPTY_BUFFER == data) {
+                return emptyList()
+            }
 
-            while (data.readableBytes() > 0) {
-                var len = prefix.read(data)
-                if (data.readableBytes() < len) {
-                    log.warn("Have less than expected. Have ${data.readableBytes()} < $len requested")
-                    len = data.readableBytes()
+            val result = ArrayList<ByteBuf>()
+            try {
+                while (data.readableBytes() > 0) {
+                    var len = prefix.read(data)
+                    if (data.readableBytes() < len) {
+                        log.warn("Have less than expected. Have ${data.readableBytes()} < $len requested (as ${DebugCommons.toHex(prefix.write(len))})")
+                        len = data.readableBytes()
+                    }
+                    val actualData = data.readSlice(len).retain()
+                    result.add(actualData)
                 }
-                val copy = data.readBytes(len)
-                result.add(copy)
+            } finally {
+                data.release()
             }
 
             return result
@@ -80,8 +88,8 @@ class SizePrefixed {
 
         fun reader(): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
             return Function { flux ->
-                flux.map { it.copy() }
-                        .bufferUntil(fullyRead())
+                flux.map { it.retain() }
+                        .bufferUntil(isFullyRead())
                         .map {  list ->
                             if (list.size == 1) {
                                 list.first()
@@ -93,7 +101,12 @@ class SizePrefixed {
                             Flux.fromIterable(split(it))
                         }
                         .filter {
-                            it.readableBytes() > 0
+                            if (it.readableBytes() == 0) {
+                                it.release()
+                                false
+                            } else {
+                                true
+                            }
                         }
             }
         }
@@ -103,7 +116,6 @@ class SizePrefixed {
                     prefix.write(bytes.readableBytes()), bytes
             )
         }
-
 
         fun writer(): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
             return Function { flux ->

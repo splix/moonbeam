@@ -80,6 +80,7 @@ class Secio(
         return Mono.just(this)
                 .map { Unpooled.wrappedBuffer(it.remoteNonce) }
                 .map(encoder())
+                .doOnError { t -> log.error("Secio nonce reply failure", t) }
     }
 
     fun replyExchange(): Publisher<ByteBuf> {
@@ -91,8 +92,15 @@ class Secio(
     }
 
     fun readSecioPropose(proposeMsg: ByteBuf, exchangeMsg: ByteBuf) {
-        val propose = Spipe.Propose.parseFrom(ByteBufInputStream(proposeMsg))
-        val exchange = Spipe.Exchange.parseFrom(ByteBufInputStream(exchangeMsg))
+        val propose: Spipe.Propose
+        val exchange: Spipe.Exchange
+        try {
+            propose = Spipe.Propose.parseFrom(ByteBufInputStream(proposeMsg))
+            exchange = Spipe.Exchange.parseFrom(ByteBufInputStream(exchangeMsg))
+        } finally {
+            proposeMsg.release()
+            exchangeMsg.release()
+        }
 
         setRemotePropose(propose)
         setupKeys(exchange)
@@ -115,9 +123,10 @@ class Secio(
     fun readNonce(input: Flux<ByteBuf>): Mono<Void> {
         return input
                 .take(1)
-                .map {
-                    val arr = ByteArray(it.readableBytes())
-                    it.readBytes(arr)
+                .map { msg ->
+                    val arr = ByteArray(msg.readableBytes())
+                    msg.readBytes(arr)
+                    msg.release()
                     arr
                 }.doOnNext {
                     if (!nonce.contentEquals(it)) {
@@ -125,6 +134,8 @@ class Secio(
                     } else {
                         log.debug("Received correct ${Hex.encodeHexString(it)} == ${Hex.encodeHexString(nonce)}")
                     }
+                }.doOnError { t ->
+                    log.error("Failed to read nonce", t)
                 }.then()
     }
 
@@ -191,9 +202,14 @@ class Secio(
     }
 
     fun encoder(): java.util.function.Function<ByteBuf, ByteBuf> {
-        return java.util.function.Function {
-//            DebugCommons.trace("ENCRYPT", it)
-            val cipherText = processBytes(localCipher, it.toByteArray())
+        return java.util.function.Function { input ->
+//            DebugCommons.trace("ENCRYPT", input)
+            val cipherText: ByteArray
+            try {
+                cipherText = processBytes(localCipher, input.toByteArray())
+            } finally {
+                input.release()
+            }
             val macArr = updateMac(localParams, cipherText)
             Unpooled.wrappedBuffer(
                     ByteBuffer.allocate(4).putInt(cipherText.size + macArr.size).array(),
@@ -205,11 +221,12 @@ class Secio(
 
     fun frameDecoder(): java.util.function.Function<Flux<ByteBuf>, Flux<ByteBuf>> {
         return java.util.function.Function { flux ->
-            flux.map {
-                val cipherBytes = ByteArray(it.readableBytes() - remoteParams.mac.macSize)
-                it.readBytes(cipherBytes)
+            flux.map { input ->
+                val cipherBytes = ByteArray(input.readableBytes() - remoteParams.mac.macSize)
+                input.readBytes(cipherBytes)
                 val macBytes  = ByteArray(remoteParams.mac.macSize)
-                it.readBytes(macBytes)
+                input.readBytes(macBytes)
+                input.release()
 
                 val macArr = updateMac(remoteParams, cipherBytes)
                 if (!macBytes.contentEquals(macArr) || macBytes.isEmpty())

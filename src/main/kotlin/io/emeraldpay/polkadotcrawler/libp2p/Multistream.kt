@@ -70,44 +70,55 @@ class Multistream {
 
         var headerFound = false
 
-        val allRead: Predicate<ByteBuf> = Predicate {
+        val allRead: Predicate<ByteBuf> = Predicate { input ->
             if (headerFound) {
                 true
             } else {
-                val copy = it.slice()
-                if (headerBuffer == null) {
-                    headerBuffer = copy.copy()
-                } else {
-                    headerBuffer = Unpooled.wrappedBuffer(headerBuffer, it)
+                if (input.isReadable) {
+                    headerBuffer = if (headerBuffer == null) {
+                        input.copy()
+                    } else {
+                        Unpooled.wrappedBuffer(headerBuffer, input)
+                    }
                 }
-                headerFound = headerBuffer!!.readableBytes() >= headerSize
+                headerFound = headerBuffer != null && headerBuffer!!.readableBytes() >= headerSize
                 headerFound
             }
         }
         return Function { flux ->
             flux.bufferUntil(allRead)
-                    .map {
+                    .map { list ->
                         if (headerBuffer == null) {
                             //list always has 1 element after header was found
-                            it.first()
+                            list.first()
                         } else {
                             val ref = headerBuffer!!
                             headerBuffer = null
 
                             if (ref.readableBytes() < headerSize) {
-                                throw IllegalStateException("Insufficient data. Expect $headerSize, have ${ref.readableBytes()}")
+                                val msg = "Insufficient data. Expect $headerSize, have ${ref.readableBytes()}"
+                                ref.release()
+                                throw IllegalStateException(msg)
                             }
-                            if (ref.slice(0, headerSize) != Unpooled.wrappedBuffer(exp.array())) {
+                            val expected = Unpooled.wrappedBuffer(exp.array())
+                            if (ref.slice(0, headerSize) != expected) {
                                 println("Actual:\n" + ByteBufUtil.prettyHexDump(ref.slice(0, headerSize)))
-                                println("Expected:\n" + ByteBufUtil.prettyHexDump(Unpooled.wrappedBuffer(exp.array())))
+                                println("Expected:\n" + ByteBufUtil.prettyHexDump(expected))
+                                ref.release()
                                 throw IllegalStateException("Received invalid header")
                             }
+                            expected.release()
                             ref.slice(headerSize, ref.readableBytes() - headerSize)
                         }
                     }
                     .filter {
                         // skip if header took whole space
-                        it.readableBytes() > 0
+                        if (it.readableBytes() == 0) {
+                            it.release()
+                            false
+                        } else {
+                            true
+                        }
                     }
 
         }

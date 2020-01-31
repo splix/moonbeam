@@ -2,6 +2,8 @@ package io.emeraldpay.polkadotcrawler.libp2p
 
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
+import io.netty.buffer.ByteBufHolder
+import io.netty.buffer.DefaultByteBufHolder
 import io.netty.buffer.Unpooled
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
@@ -32,8 +34,12 @@ class Mplex: AutoCloseable {
     }
 
     override fun close() {
+        log.debug("Close Mplex connection")
         messages.dispose()
+        messages.drain().subscribe { it.release() }
+
         outbound.dispose()
+        outbound.drain().subscribe { it.release() }
     }
 
     fun parse(msg: ByteBuf): List<Message> {
@@ -62,6 +68,8 @@ class Mplex: AutoCloseable {
             }
         } catch (e: java.lang.IllegalArgumentException) {
             log.warn("Invalid Mplex data")
+        } finally {
+            input.release()
         }
     }
 
@@ -71,7 +79,7 @@ class Mplex: AutoCloseable {
                     it.header.id == id && it.header.flag == flag
                 }
                 .map {
-                    it.data
+                    it.content()
                 }
     }
 
@@ -85,7 +93,8 @@ class Mplex: AutoCloseable {
 
     fun <T> receiveStreams(handler: Handler<T>): Flux<T> {
         val f = Flux.from(messages).share().cache(1)
-        val result = Flux.from(f).filter {
+        val result = Flux.from(f)
+                .filter {
                     it.header.flag == Flag.NewStream
                 }
                 .map { init ->
@@ -124,11 +133,11 @@ class Mplex: AutoCloseable {
         }
     }
 
-    class Message(val header: Header, val data: ByteBuf) {
+    class Message(val header: Header, data: ByteBuf): DefaultByteBufHolder(data) {
         fun encode(): ByteBuf {
             val header = header.encode()
-            val length = VARINT_CONVERTER.write(data.readableBytes())
-            return Unpooled.wrappedBuffer(header, length, data)
+            val length = VARINT_CONVERTER.write(this.content().readableBytes())
+            return Unpooled.wrappedBuffer(header, length, this.content())
         }
 
         companion object {
