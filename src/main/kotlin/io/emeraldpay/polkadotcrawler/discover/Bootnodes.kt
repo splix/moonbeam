@@ -4,6 +4,8 @@ import io.libp2p.core.multiformats.Multiaddr
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Repository
+import reactor.core.publisher.Flux
+import java.time.Duration
 
 @Repository
 class Bootnodes(
@@ -30,9 +32,12 @@ class Bootnodes(
     }
 
     override fun run() {
-//        discovered.submit(Multiaddr.fromString(NODES[0]))
-        NODES.forEach {
-            discovered.submit(Multiaddr.fromString(it))
-        }
+        // resend bootnodes to discover queue, to always have nodes to start discover from
+        Flux.interval(Duration.ZERO, Duration.ofMinutes(5))
+                .doOnNext {
+                    NODES.forEach {
+                        discovered.submit(Multiaddr.fromString(it))
+                    }
+                }.subscribe()
     }
 }

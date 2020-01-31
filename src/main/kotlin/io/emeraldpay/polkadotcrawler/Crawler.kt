@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.crawler.CrawlerClient
 import io.emeraldpay.polkadotcrawler.discover.Discovered
+import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
@@ -20,7 +21,8 @@ import java.util.function.Consumer
 
 @Service
 class Crawler(
-        @Autowired private val discovered: Discovered
+        @Autowired private val discovered: Discovered,
+        @Autowired private val noRecentChecks: NoRecentChecks
 ): Runnable, Consumer<Multiaddr> {
 
     companion object {
@@ -51,6 +53,7 @@ class Crawler(
 
     override fun run() {
         Flux.from(discovered.listen())
+                .filter(noRecentChecks)
                 .subscribe(this)
     }
 
