@@ -254,13 +254,7 @@ class CrawlerClient(
 
     enum class DataType(val clazz: Class<out Any>) {
         IDENTIFY(IdentifyOuterClass.Identify::class.java),
-        DHT_NODES(Dht.Message::class.java),
-        FINALIZED(FinalizedType::class.java)
-    }
-
-    enum class FinalizedType {
-        SENDER,
-        MPLEX_RESPONSE
+        DHT_NODES(Dht.Message::class.java)
     }
 
     class Data<T>(
