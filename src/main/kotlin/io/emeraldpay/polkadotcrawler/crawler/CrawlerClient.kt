@@ -14,6 +14,7 @@ import io.netty.handler.logging.LogLevel
 import io.netty.handler.logging.LoggingHandler
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
@@ -25,6 +26,9 @@ import reactor.netty.tcp.TcpClient
 import java.net.UnknownHostException
 import java.nio.charset.Charset
 import java.time.Duration
+import java.util.concurrent.CancellationException
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
 
 class CrawlerClient(
         private val remote: Multiaddr,
@@ -39,10 +43,12 @@ class CrawlerClient(
     private val multistream = Multistream()
 
     private val results = TopicProcessor.builder<Data<*>>()
-            .share(true)
-            .bufferSize(8)
-            .autoCancel(false)
+//            .share(true)
+            .autoCancel(true)
+            .name("client-data")
             .build()
+    private var connection: Connection? = null
+
 
     fun getHost(): String {
         if (remote.has(Protocol.IP4)) {
@@ -54,6 +60,10 @@ class CrawlerClient(
         throw IllegalArgumentException("Unsupported address: $remote")
     }
 
+    fun disconnect() {
+        results.dispose()
+        connection?.dispose()
+    }
 
     fun connect(): Flux<Data<*>> {
         log.debug("Connect to $remote")
@@ -61,18 +71,19 @@ class CrawlerClient(
         val port = remote.getStringComponent(Protocol.TCP)!!.toInt()
 
         try {
-            val connection: Connection = TcpClient.create()
+            this.connection = TcpClient.create()
                     .host(host)
                     .port(port)
                     .handle(::handle)
                     .connectNow(Duration.ofSeconds(15))
 
-            connection.onDispose().subscribe {
+            connection!!.onDispose().subscribe {
                 log.debug("Disconnected from $remote")
             }
             return Flux.from(results)
+                    .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
                     .doFinally {
-                        connection.dispose()
+                        connection?.dispose()
                     }
         } catch (e: ConnectTimeoutException) {
             log.debug("Timeout to connect to $remote")

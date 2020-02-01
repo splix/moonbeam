@@ -66,7 +66,10 @@ class Crawler(
 //                    .subscribeOn(Schedulers.elastic())
                     .takeUntil { peersReceived && peerDetails.filled() }
                     .timeout(Duration.ofSeconds(60))
-                    .doFinally { peerDetails.dump() }
+                    .doFinally {
+                        peerDetails.dump()
+                        crawler.disconnect()
+                    }
                     .subscribe {
                         log.debug("Received ${it.dataType} from $address")
 
