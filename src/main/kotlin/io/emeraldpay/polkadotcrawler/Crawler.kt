@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import java.time.Duration
 import java.util.function.Consumer
 
@@ -23,7 +25,7 @@ import java.util.function.Consumer
 class Crawler(
         @Autowired private val discovered: Discovered,
         @Autowired private val noRecentChecks: NoRecentChecks
-): Runnable, Consumer<Multiaddr> {
+): Runnable {
 
     companion object {
         private val log = LoggerFactory.getLogger(Crawler::class.java)
@@ -53,32 +55,35 @@ class Crawler(
 
     override fun run() {
         Flux.from(discovered.listen())
+                .subscribeOn(Schedulers.newSingle("crawler"))
                 .filter(noRecentChecks)
-                .subscribe(this)
+                .flatMap {
+                    connect(it)
+                }
+                .onErrorContinue { t, u ->
+                    log.warn("Failed to connect", t)
+                }
+                .subscribe {
+                    it.dump()
+                }
     }
 
-    override fun accept(address: Multiaddr) {
+    fun connect(address: Multiaddr): Mono<PeerDetails> {
         try {
             val crawler = CrawlerClient(address, agent, keys)
-            val peerDetails = PeerDetails(address)
-            var peersReceived = false
-            crawler.connect()
-//                    .subscribeOn(Schedulers.elastic())
-                    .takeUntil { peersReceived && peerDetails.filled() }
-                    .timeout(Duration.ofSeconds(60))
+            val result = crawler.connect()
+                    .take(Duration.ofSeconds(60))
                     .doFinally {
-                        peerDetails.dump()
                         crawler.disconnect()
                     }
-                    .subscribe {
+                    .reduce(PeerDetails(address)) { details, it ->
                         log.debug("Received ${it.dataType} from $address")
 
                         when (it.dataType) {
 
                             CrawlerClient.DataType.DHT_NODES -> {
-                                peersReceived = true
                                 val dht = it.cast(Dht.Message::class.java)
-                                peerDetails.add(dht.data)
+                                details.add(dht.data)
 
                                 dht.data.closerPeersList.flatMap {
                                     it.addrsList
@@ -98,39 +103,17 @@ class Crawler(
 
                             CrawlerClient.DataType.IDENTIFY -> {
                                 val id = it.cast(IdentifyOuterClass.Identify::class.java)
-                                peerDetails.add(id.data)
+                                details.add(id.data)
                             }
                         }
 
+                        details
                     }
+            return result
         } catch (e: Exception) {
             log.error("Failed to setup crawler connection", e)
             throw e
         }
 
-
-//        val host = address.getStringComponent(Protocol.IP4)!!
-//        val port = address.getStringComponent(Protocol.TCP)!!.toInt()
-//        val connection: Connection = TcpClient.create()
-//                .host(host)
-//                .port(port)
-//                .handle { inbound, outbound ->
-//                    try {
-//                        val crawler = CrawlerClient(address, agent, keys)
-//                        crawler.connect()
-//                                .subscribeOn(Schedulers.elastic())
-//                                .subscribe {
-//                                    log.info("Received ${it.dataType} from $address")
-//                                }
-//                        crawler.handle(inbound, outbound)
-//                    } catch (e: Exception) {
-//                        log.error("Failed to setup crawler connection", e)
-//                        throw e
-//                    }
-//                }
-//                .connectNow()
-
-//        connection.onDispose()
-//                .block()
     }
 }

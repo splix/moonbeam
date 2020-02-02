@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.crypto.PrivKey
@@ -98,21 +99,29 @@ class CrawlerClient(
         return Flux.empty()
     }
 
-    fun requestDht(mplex: Mplex): Mono<Data<Dht.Message>> {
-        return mplex.newStream(object: Mplex.Handler<Mono<Data<Dht.Message>>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Data<Dht.Message>> {
+    fun requestDht(mplex: Mplex): Flux<Data<Dht.Message>> {
+        return mplex.newStream(object: Mplex.Handler<Flux<Data<Dht.Message>>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
                 val dht = DhtProtocol()
+                val sendRequests = Runnable { outboud.send(dht.start()).subscribe() }
                 val result = Flux.from(inboud)
+                        .doOnSubscribe {
+                            outboud.send(Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))).subscribe()
+                        }
                         .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("DHT PACKET"))
-                        .transform(multistream.readProtocol("/ipfs/kad/1.0.0", false))
+                        .transform(
+                                multistream.readProtocol("/ipfs/kad/1.0.0", false, sendRequests)
+                        )
                         .filter {
                             it.readableBytes() > 2 //skip 0x1a00 TODO
                         }
+                        .take(3) //usually it returns up to 3 messages
+                        .take(Duration.ofSeconds(15))
+                        .timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("DHT")))
                         .map {
                             dht.parse(it)
                         }
-                        .take(1).single().timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("DHT")))
                         .doOnError {
                             if (it is DataTimeoutException) {
                                 log.debug("Timeout for ${it.name} from $remote")
@@ -122,10 +131,8 @@ class CrawlerClient(
                         }
                         .onErrorResume { Mono.empty() }
                         .map { Data(DataType.DHT_NODES, it) }
-                val start = Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))
-                return outboud.send(
-                        Flux.concat(start, dht.start())
-                ).then(result)
+
+                return result
             }
         })
     }
@@ -135,6 +142,9 @@ class CrawlerClient(
             override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Data<IdentifyOuterClass.Identify>> {
                 val identify = IdentifyProtocol()
                 val result  = Flux.from(inboud)
+                        .doOnSubscribe {
+                            outboud.send(Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))).subscribe()
+                        }
                         .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("ID PACKET"))
                         .transform(multistream.readProtocol("/ipfs/id/1.0.0", false))
@@ -151,8 +161,7 @@ class CrawlerClient(
                         }
                         .onErrorResume { Mono.empty() }
                         .map { Data(DataType.IDENTIFY, it) }
-                val start = Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))
-                return outboud.send(start).then(result)
+                return result
             }
         })
     }
@@ -209,11 +218,27 @@ class CrawlerClient(
                 .doOnError { t -> log.warn("Failed to decrypt channel", t) }
                 .share()
 
-        val receiveSecioNonce = secio.readNonce(decrypted)
+        val receiveSecioNonce = secio.readNonce(Flux.from(decrypted))
+
+        val processors: Publisher<Data<*>> = Flux.merge(
+                Flux.from(requestIdentify(mplex)).subscribeOn(Schedulers.elastic()),
+                Flux.from(requestDht(mplex)).subscribeOn(Schedulers.elastic())
+        )
+
+        var mplexStarted = false
 
         val listenMplex = Flux.from(decrypted)
                 .skip(1) //nonce
                 .transform(multistream.readProtocol("/mplex/6.7.0"))
+                .doOnEach {
+                    if (it.hasValue()) {
+                        if (!mplexStarted) {
+                            log.debug("Mplex established")
+                            processors.subscribe(results)
+                            mplexStarted = true
+                        }
+                    }
+                }
                 .map(mplex::onNext)
                 .doOnError { log.warn("Failed to process Mplex message", it) }
 
@@ -225,12 +250,6 @@ class CrawlerClient(
 
         val mplexResponse = respondStandardRequests(mplex)
 
-        val processors: Publisher<Data<*>> = Flux.merge(
-                requestIdentify(mplex),
-                requestDht(mplex)
-        )
-
-        processors.subscribe(results)
 
         val main: Publisher<Void> = outbound.send(
                 Flux.concat(

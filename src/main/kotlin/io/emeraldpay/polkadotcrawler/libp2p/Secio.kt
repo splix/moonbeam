@@ -203,7 +203,7 @@ class Secio(
 
     fun encoder(): java.util.function.Function<ByteBuf, ByteBuf> {
         return java.util.function.Function { input ->
-//            DebugCommons.trace("ENCRYPT", input)
+//            DebugCommons.trace("ENCRYPT", input, true)
             val cipherText: ByteArray
             try {
                 cipherText = processBytes(localCipher, input.toByteArray())
@@ -233,7 +233,7 @@ class Secio(
                     throw MacMismatch()
 
                 val clearText = Unpooled.wrappedBuffer(processBytes(remoteCipher, cipherBytes))
-//                DebugCommons.trace("DECRYPTED", clearText)
+//                DebugCommons.trace("DECRYPTED", clearText, false)
                 clearText
             }
         }

@@ -4,8 +4,10 @@ import com.google.protobuf.CodedOutputStream
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.ByteBufUtil
 import io.netty.buffer.Unpooled
+import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 import java.nio.ByteBuffer
 import java.util.function.Function
 import java.util.function.Predicate
@@ -46,7 +48,7 @@ class Multistream {
         )
     }
 
-    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Runnable? = null): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
         var headerBuffer: ByteBuf? = null
 
         var headerSize = NAME.length + NL_SIZE + protocol.length + NL_SIZE
@@ -102,12 +104,13 @@ class Multistream {
                             }
                             val expected = Unpooled.wrappedBuffer(exp.array())
                             if (ref.slice(0, headerSize) != expected) {
-                                println("Actual:\n" + ByteBufUtil.prettyHexDump(ref.slice(0, headerSize)))
-                                println("Expected:\n" + ByteBufUtil.prettyHexDump(expected))
+                                System.err.println("Actual:\n" + ByteBufUtil.prettyHexDump(ref.slice(0, headerSize)))
+                                System.err.println("Expected:\n" + ByteBufUtil.prettyHexDump(expected))
                                 ref.release()
                                 throw IllegalStateException("Received invalid header")
                             }
                             expected.release()
+                            onFound?.run()
                             ref.slice(headerSize, ref.readableBytes() - headerSize)
                         }
                     }

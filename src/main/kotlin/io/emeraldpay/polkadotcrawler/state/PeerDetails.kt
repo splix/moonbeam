@@ -49,7 +49,7 @@ class PeerDetails(
         val buf = StringBuilder()
         buf.append("Peer ${host}:${port} is ${agent}")
         if (peers > 0) {
-            buf.append(", has at least ${peers} peers")
+            buf.append(", knows at least ${peers} peers")
         }
         log.info(buf.toString())
     }

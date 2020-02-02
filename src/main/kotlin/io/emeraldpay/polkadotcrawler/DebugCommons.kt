@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBufUtil
 import org.apache.commons.codec.binary.Hex
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
+import java.lang.StringBuilder
 import java.util.function.Function
 
 class DebugCommons {
@@ -12,16 +13,27 @@ class DebugCommons {
     companion object {
         private val log = LoggerFactory.getLogger(DebugCommons::class.java)
 
-        fun traceByteBuf(label: String): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+        fun traceByteBuf(label: String, out: Boolean): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
             return Function { flux ->
-                flux.doOnNext { trace(label, it) }
+                flux.doOnNext { trace(label, it, out) }
             }
         }
 
         @JvmStatic
-        fun trace(label: String, data: ByteBuf) {
-            println(">>>>>>>>>>>>>>>> $label <<<<<<<<<<<<<<<<\n" + ByteBufUtil.prettyHexDump(data))
-            println("$label hex = ${toHex(data)}")
+        fun trace(label: String, data: ByteBuf, out: Boolean) {
+            val prefix = if (out) {
+                "                                                  "
+            } else {
+                ""
+            }
+            val buf = StringBuilder()
+                    .append("${prefix}         +-------------------------------------------------+").append('\n')
+                    .append("${prefix}         | $label").append('\n')
+                    .append(ByteBufUtil.prettyHexDump(data).split("\n").map { prefix + it }.joinToString("\n")).append('\n')
+                    .append("${prefix}|  HEX   | ${toHex(data)}").append('\n')
+                    .append("${prefix}+--------+------------------------------------------------------------------+").append('\n')
+
+            print(buf)
         }
 
         @JvmStatic
