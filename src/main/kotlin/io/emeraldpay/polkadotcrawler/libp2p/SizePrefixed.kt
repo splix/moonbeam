@@ -2,6 +2,7 @@ package io.emeraldpay.polkadotcrawler.libp2p
 
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.CodedOutputStream
+import com.google.protobuf.InvalidProtocolBufferException
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
@@ -35,7 +36,19 @@ class SizePrefixed {
             if (data.readableBytes() == 0) {
                 return 0
             }
-            val len = prefix.read(data)
+            val pos = data.readerIndex()
+            val len = try {
+                prefix.read(data)
+            } catch (e: IndexOutOfBoundsException) {
+                data.readerIndex(pos)
+                // for Standard can calculate exact
+                return 4 - data.readableBytes()
+            } catch (e: InvalidProtocolBufferException) {
+                // Error Message: While parsing a protocol message, the input ended unexpectedly in the middle of a field.  This could mean either that the input has been truncated or that an embedded message misreported its own length.
+                // for Varint needs at least one byte
+                data.readerIndex(pos)
+                return data.readableBytes() + 1
+            }
             if (data.readableBytes() < len) {
                 return len - data.readableBytes()
             }

@@ -94,6 +94,133 @@ class SizePrefixedSpec extends Specification{
                 .expectNext("02dd02c93edd022a0e2f7375627374726174652f312e3032367375627374726174652d6e6f64652f76322e302e302d6263383564333532362d7838365f36342d6d61636f732028756e6b6e6f776e290a2408011220a7b29701a36c00368dbf2776afb15c51be02cc1ff758129be21fe8f093a1b8b6120804b99f9d0806767d1208040a00018806767d1208040a00018606767d1208047f00000106767d1214290000000000000000000000000000000106767d120804c0a8016e06767d120804c0a8c80106767d120804c0a8630106767d1208040a06077f06767d2208047f00000106d4cd1a112f7375627374726174652f666972352f361a112f7375627374726174652f666972352f351a112f7375627374726174652f666972352f341a112f7375627374726174652f666972352f331a102f697066732f70696e672f312e302e301a0e2f697066732f69642f312e302e301a0f2f697066732f6b61642f312e302e30")
                 .expectComplete()
                 .verify(Duration.ofSeconds(1))
+    }
 
+    def "Varint - expects length to be finished"() {
+        setup:
+        def converter = SizePrefixed.Varint()
+        def data = new byte[1000]
+        def len = converter.prefix.write(data.size())
+        assert len.readableBytes() > 1
+        def p1 = len.slice(0, 1)
+        def p2 = Unpooled.wrappedBuffer(
+                len.slice(1, len.readableBytes() - 1),
+                Unpooled.wrappedBuffer(data)
+        )
+
+        when:
+        def act = converter.scanForExpected(p1.slice())
+        then:
+        act == 2
+
+        when:
+        act = converter.scanForExpected(Unpooled.wrappedBuffer(p1, p2))
+        then:
+        act == 0
+    }
+
+    def "Varint - length prefix split into two packets"() {
+        setup:
+        def converter = SizePrefixed.Varint()
+        def data = new byte[1000]
+        def len = converter.prefix.write(data.size())
+        assert len.readableBytes() > 1
+        def p1 = len.slice(0, 1)
+        def p2 = Unpooled.wrappedBuffer(
+                len.slice(1, len.readableBytes() - 1),
+                Unpooled.wrappedBuffer(data)
+        )
+
+        when:
+        def act = Flux.fromIterable([p1, p2])
+                .transform(converter.reader())
+                .map {
+                    def copy = new byte[it.readableBytes()]
+                    it.readBytes(copy)
+                    return org.apache.commons.codec.binary.Hex.encodeHexString(copy)
+                }
+
+        then:
+        StepVerifier.create(act)
+            .expectNext("00" * 1000)
+            .expectComplete()
+            .verify(Duration.ofSeconds(1))
+    }
+
+    def "Varint - length prefix split into 3 packets"() {
+        setup:
+        def converter = SizePrefixed.Varint()
+        def data = new byte[1000]
+        def len = converter.prefix.write(data.size())
+        assert len.readableBytes() > 1
+        def p1 = len.slice(0, 1)
+        def p2 = len.slice(1, len.readableBytes() - 1)
+        def p3 = Unpooled.wrappedBuffer(Unpooled.wrappedBuffer(data))
+
+        when:
+        def act = Flux.fromIterable([p1, p2, p3])
+                .transform(converter.reader())
+                .map {
+                    def copy = new byte[it.readableBytes()]
+                    it.readBytes(copy)
+                    return org.apache.commons.codec.binary.Hex.encodeHexString(copy)
+                }
+
+        then:
+        StepVerifier.create(act)
+                .expectNext("00" * 1000)
+                .expectComplete()
+                .verify(Duration.ofSeconds(1))
+    }
+
+    def "Standard - expects length to be finished"() {
+        setup:
+        def converter = SizePrefixed.Standard()
+        def data = new byte[10]
+        def len = converter.prefix.write(data.size())
+        assert len.readableBytes() > 1
+        def p1 = len.slice(0, 2)
+        def p2 = Unpooled.wrappedBuffer(
+                len.slice(2, len.readableBytes() - 2),
+                Unpooled.wrappedBuffer(data)
+        )
+
+        when:
+        def act = converter.scanForExpected(p1.slice())
+        then:
+        act > 0
+
+        when:
+        act = converter.scanForExpected(Unpooled.wrappedBuffer(p1, p2))
+        then:
+        act == 0
+    }
+
+    def "Standard - length prefix split into two packets"() {
+        setup:
+        def converter = SizePrefixed.Standard()
+        def data = new byte[100]
+        def len = converter.prefix.write(data.size())
+        assert len.readableBytes() > 1
+        def p1 = len.slice(0, 1)
+        def p2 = Unpooled.wrappedBuffer(
+                len.slice(1, len.readableBytes() - 1),
+                Unpooled.wrappedBuffer(data)
+        )
+
+        when:
+        def act = Flux.fromIterable([p1, p2])
+                .transform(converter.reader())
+                .map {
+                    def copy = new byte[it.readableBytes()]
+                    it.readBytes(copy)
+                    return org.apache.commons.codec.binary.Hex.encodeHexString(copy)
+                }
+
+        then:
+        StepVerifier.create(act)
+                .expectNext("00" * 100)
+                .expectComplete()
+                .verify(Duration.ofSeconds(1))
     }
 }
