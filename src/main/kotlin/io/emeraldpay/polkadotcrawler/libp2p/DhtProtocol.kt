@@ -19,7 +19,7 @@ class DhtProtocol {
 
     private val sizePrefixed = SizePrefixed.Varint()
 
-    fun start(): Publisher<ByteBuf> {
+    fun start(): Flux<ByteBuf> {
         return Flux.range(0, 3).map {
             request()
         }

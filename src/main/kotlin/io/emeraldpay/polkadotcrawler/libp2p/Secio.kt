@@ -115,6 +115,7 @@ class Secio(
                 .transform(SizePrefixed.Standard().reader())
                 .take(2)
                 .collectList()
+                .filter { it.size == 2 }
                 .map { readSecioPropose(it.get(0), it.get(1)); true }
                 .doOnError { log.error("Failed to setup Secio connection", it) }
                 .thenMany(Flux.concat(replyExchange(), replyNonce()))

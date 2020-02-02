@@ -53,7 +53,6 @@ class Mplex: AutoCloseable {
 
     fun onNext(input: ByteBuf) {
         try {
-//            DebugCommons.trace("MPLEX", input, false)
             parse(input).forEachIndexed { i, msg ->
 //                val ascii = msg.content().toString(Charset.defaultCharset())
 //                        .replace(Regex("[^\\w/\\\\.-]"), ".")
@@ -176,6 +175,12 @@ class Mplex: AutoCloseable {
             Flag.MessageReceiver
         }
 
+        private val closeFlag = if (initiator) {
+            Flag.CloseInitiator
+        } else {
+            Flag.CloseReceiver
+        }
+
         fun send(value: Publisher<ByteBuf>): Mono<Void> {
             return Flux.from(value)
                     .map {
@@ -190,7 +195,9 @@ class Mplex: AutoCloseable {
         }
 
         override fun close() {
-            //TODO
+            log.debug("Close stream $streamId")
+            val msg = Message(Header(closeFlag, streamId), Unpooled.EMPTY_BUFFER).encode()
+            outbound.onNext(msg)
         }
     }
 

@@ -19,7 +19,6 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import java.time.Duration
-import java.util.function.Consumer
 
 @Service
 class Crawler(
@@ -58,10 +57,18 @@ class Crawler(
                 .subscribeOn(Schedulers.newSingle("crawler"))
                 .filter(noRecentChecks)
                 .flatMap {
-                    connect(it)
+                    connect(it).retry(3) { t ->
+                        t is NotLoadedException
+                    }.subscribeOn(Schedulers.elastic())
                 }
-                .onErrorContinue { t, u ->
-                    log.warn("Failed to connect", t)
+                .onErrorResume { t ->
+                    if (t is NotLoadedException) {
+                        log.debug("Peer not loaded. ${t.peer.address}")
+                        noRecentChecks.forget(t.peer.address)
+                    } else {
+                        log.warn("Failed to connect", t)
+                    }
+                    Flux.empty()
                 }
                 .subscribe {
                     it.dump()
@@ -70,11 +77,14 @@ class Crawler(
 
     fun connect(address: Multiaddr): Mono<PeerDetails> {
         try {
-            val crawler = CrawlerClient(address, agent, keys)
-            val result = crawler.connect()
-                    .take(Duration.ofSeconds(60))
+            var crawler: CrawlerClient? = null
+            val result = Mono.just(address)
+                    .map { CrawlerClient(it, agent, keys) }
+                    .doOnNext { crawler = it }
+                    .flatMapMany { it.connect() }
+                    .take(Duration.ofSeconds(15))
                     .doFinally {
-                        crawler.disconnect()
+                        crawler?.disconnect()
                     }
                     .reduce(PeerDetails(address)) { details, it ->
                         log.debug("Received ${it.dataType} from $address")
@@ -109,6 +119,16 @@ class Crawler(
 
                         details
                     }
+                    .onErrorResume {
+                        log.debug("Connection failure. ${it.javaClass}: ${it.message}")
+                        Mono.empty()
+                    }
+                    .map {
+                        if (!it.filled()) {
+                            throw NotLoadedException(it)
+                        }
+                        it
+                    }
             return result
         } catch (e: Exception) {
             log.error("Failed to setup crawler connection", e)
@@ -116,4 +136,6 @@ class Crawler(
         }
 
     }
+
+    class NotLoadedException(val peer: PeerDetails): Exception()
 }

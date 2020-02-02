@@ -29,6 +29,10 @@ class NoRecentChecks: Predicate<Multiaddr> {
         }
     }
 
+    fun forget(address: Multiaddr) {
+        history.remove(address)
+    }
+
     @Scheduled(fixedRate = 5 * 60_000, initialDelay = 15 * 60_000) // run every 5 minutes, initial run after 15 minutes
     fun cleanup() {
         val recent = Instant.now().minus(TTL)

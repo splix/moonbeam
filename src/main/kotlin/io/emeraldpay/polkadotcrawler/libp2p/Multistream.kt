@@ -48,7 +48,7 @@ class Multistream {
         )
     }
 
-    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Runnable? = null): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
         var headerBuffer: ByteBuf? = null
 
         var headerSize = NAME.length + NL_SIZE + protocol.length + NL_SIZE
@@ -89,10 +89,10 @@ class Multistream {
         }
         return Function { flux ->
             flux.bufferUntil(allRead)
-                    .map { list ->
+                    .flatMap { list ->
                         if (headerBuffer == null) {
                             //list always has 1 element after header was found
-                            list.first()
+                            Flux.fromIterable(list)
                         } else {
                             val ref = headerBuffer!!
                             headerBuffer = null
@@ -110,8 +110,12 @@ class Multistream {
                                 throw IllegalStateException("Received invalid header")
                             }
                             expected.release()
-                            onFound?.run()
-                            ref.slice(headerSize, ref.readableBytes() - headerSize)
+                            val result = ref.slice(headerSize, ref.readableBytes() - headerSize)
+                            if (onFound != null) {
+                                onFound.thenReturn(result)
+                            } else {
+                                Mono.just(result)
+                            }
                         }
                     }
                     .filter {

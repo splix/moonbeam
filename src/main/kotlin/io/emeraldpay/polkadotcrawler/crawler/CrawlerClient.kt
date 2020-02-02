@@ -72,20 +72,25 @@ class CrawlerClient(
         val port = remote.getStringComponent(Protocol.TCP)!!.toInt()
 
         try {
-            this.connection = TcpClient.create()
+            val client = TcpClient.create()
                     .host(host)
                     .port(port)
                     .handle(::handle)
-                    .connectNow(Duration.ofSeconds(15))
-
-            connection!!.onDispose().subscribe {
-                log.debug("Disconnected from $remote")
-            }
-            return Flux.from(results)
-                    .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
-                    .doFinally {
-                        connection?.dispose()
+                    .connect()
+                    .doOnNext {
+                        this.connection = it
+                        it.onDispose().subscribe {
+                            log.debug("Disconnected from $remote")
+                        }
                     }
+
+            return client.thenMany(
+                    Flux.from(results)
+                        .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
+                        .doFinally {
+                            connection?.dispose()
+                        }
+            )
         } catch (e: ConnectTimeoutException) {
             log.debug("Timeout to connect to $remote")
         } catch (e: IllegalStateException) {
@@ -103,7 +108,9 @@ class CrawlerClient(
         return mplex.newStream(object: Mplex.Handler<Flux<Data<Dht.Message>>> {
             override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
                 val dht = DhtProtocol()
-                val sendRequests = Runnable { outboud.send(dht.start()).subscribe() }
+                val sendRequests = outboud
+                        .send(dht.start())
+                        .doFinally { outboud.close() }
                 val result = Flux.from(inboud)
                         .doOnSubscribe {
                             outboud.send(Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))).subscribe()
@@ -118,7 +125,8 @@ class CrawlerClient(
                         }
                         .take(3) //usually it returns up to 3 messages
                         .take(Duration.ofSeconds(15))
-                        .timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("DHT")))
+                        .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("DHT")))
+                        .retry(3)
                         .map {
                             dht.parse(it)
                         }
@@ -151,7 +159,9 @@ class CrawlerClient(
                         .map {
                             identify.parse(it)
                         }
-                        .take(1).single().timeout(Duration.ofSeconds(15), Mono.error(DataTimeoutException("Identify")))
+                        .take(1).single()
+                        .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Identify")))
+                        .retry(3)
                         .doOnError {
                             if (it is DataTimeoutException) {
                                 log.debug("Timeout for ${it.name} from $remote")
@@ -176,10 +186,11 @@ class CrawlerClient(
                                 try {
                                     if (msg.toString(Charset.defaultCharset()).contains("/ipfs/ping/1.0.0")) {
                                         val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
-                                        return@switchOnFirst Flux.concat(start, flux.skip(1))
+                                        val response = flux.skip(1).take(1).single()
+                                        return@switchOnFirst Flux.concat(start, response).doFinally { outboud.close() }
                                     } else if (msg.toString(Charset.defaultCharset()).contains("/ipfs/id/1.0.0")) {
                                         val value = Mono.just(Unpooled.wrappedBuffer(agent.toByteArray()))
-                                        return@switchOnFirst Flux.concat(value)
+                                        return@switchOnFirst Flux.concat(value).doFinally { outboud.close() }
                                     } else {
                                         log.debug("Request to an unsupported protocol")
                                     }

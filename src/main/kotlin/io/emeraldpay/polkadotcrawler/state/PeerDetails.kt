@@ -10,7 +10,7 @@ import java.lang.StringBuilder
 import java.net.InetAddress
 
 class PeerDetails(
-        private val address: Multiaddr
+        val address: Multiaddr
 ) {
 
     companion object {
@@ -47,7 +47,7 @@ class PeerDetails(
             return
         }
         val buf = StringBuilder()
-        buf.append("Peer ${host}:${port} is ${agent}")
+        buf.append("Peer ${host}:${port} uses ${agent}")
         if (peers > 0) {
             buf.append(", knows at least ${peers} peers")
         }
