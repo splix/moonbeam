@@ -3,15 +3,49 @@
 Crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
 details about the node (software version, etc) and its peers to continue scan.
 
-NOTE: The project is in the _early stage_ of development
+.Currently produces output to the console similar to the following:
+----
+04:58:11.029 [main         ] INFO    StarterKt | Starting StarterKt on c8a52217adb9 with PID 1 (/app/classes started by root in /)
+04:58:11.036 [main         ] INFO    StarterKt | No active profile set, falling back to default profiles: default
+04:58:13.657 [main         ] INFO  skScheduler | Initializing ExecutorService 'taskScheduler'
+04:58:13.676 [main         ] INFO    StarterKt | Started StarterKt in 3.176 seconds (JVM running for 4.775)
+04:58:16.591 [client-data-1] INFO  PeerDetails | Peer p2p.cc3-2.kusama.network/34.208.90.98:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:17.925 [client-data-6] INFO  PeerDetails | Peer p2p.cc3-5.kusama.network/40.74.71.205:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:21.516 [client-data-7] INFO  PeerDetails | Peer p2p.cc3-4.kusama.network/191.238.218.130:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:23.163 [client-data-1] INFO  PeerDetails | Peer /35.194.183.3:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:23.911 [client-data-1] INFO  PeerDetails | Peer /144.91.86.76:30333 uses centrifuge-chain/v2.0.0-638b681-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:31.287 [client-data-2] INFO  PeerDetails | Peer p2p.cc3-1.kusama.network/35.194.199.20:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 60 peers
+04:58:31.540 [parallel-1   ] INFO  PeerDetails | Peer /18.204.217.244:30333 uses parity-polkadot/v0.7.18-fc100e65-x86_64-linux-gnu (unknown)
+04:58:31.642 [parallel-4   ] INFO  PeerDetails | Peer /128.199.253.99:30333 uses airalab-robonomics/v0.14.0-9ce6b62-x86_64-linux-gnu (unknown), knows at least 40 peers
+04:58:31.698 [parallel-1   ] INFO  PeerDetails | Peer /13.58.138.71:30333 uses parity-polkadot/v0.7.18-fc100e6-x86_64-linux-gnu (unknown), knows at least 20 peers
+04:58:31.736 [parallel-4   ] INFO  PeerDetails | Peer /3.10.135.242:30100 uses parity-polkadot/v0.7.19-ab1fa78-x86_64-linux-gnu (unknown), knows at least 40 peers
+04:58:31.795 [parallel-1   ] INFO  PeerDetails | Peer /45.32.20.92:30333 uses parity-polkadot/v0.7.18-fc100e6-x86_64-linux-gnu (unknown)
+04:58:31.804 [parallel-1   ] INFO  PeerDetails | Peer /108.61.209.73:30333 uses edgeware-node/v2.0.0-f94c878-x86_64-linux-gnu (unknown)
+04:58:32.940 [parallel-2   ] INFO  PeerDetails | Peer /139.162.103.23:30333 uses joystream-node/v1.0.0-9ea3cfa-x86_64-linux-gnu (unknown)
+04:58:32.941 [parallel-2   ] INFO  PeerDetails | Peer /35.222.102.68:30333 uses parity-polkadot/v0.7.18-fc100e65-x86_64-linux-gnu (unknown)
+04:58:32.959 [parallel-2   ] INFO  PeerDetails | Peer /3.114.81.104:30333 uses plasm-node/v0.7.1-b4cea7d-x86_64-linux-gnu (unknown)
+04:58:32.959 [parallel-2   ] INFO  PeerDetails | Peer /47.110.232.108:20222 uses ChainX/v1.0.6-d8a1e32-x86_64-linux-gnu (unknown)
+----
+
+NOTE: The project is in an _early stage_ of development
+
+.Features roadmap
+- [ ] parse node details and extract info about software
+- [ ] save found nodes to a local file in JSON format
 
 == Run Instructions
+
+=== Using Docker
+
+----
+docker run emeraldpay/polkadot-crawler
+----
 
 === Using Gradle
 
 Gradle could be installed from the website https://gradle.org/, or through SDKMAN https://sdkman.io/
 
-.To run crawler:
+.Run (and build) with command:
 ----
 gradle run
 ----
@@ -20,11 +54,17 @@ gradle run
 
 Requirements:
 
-- Java 8+
-- Gradle
+- Java 11+
+- Gradle 5.6+
 
+.Local build
 ----
 gradle build
+----
+
+.To build local Docker image:
+----
+gradle jibDockerBuild
 ----
 
 == License
