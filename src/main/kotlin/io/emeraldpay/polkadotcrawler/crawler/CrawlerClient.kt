@@ -121,7 +121,12 @@ class CrawlerClient(
                                 multistream.readProtocol("/ipfs/kad/1.0.0", false, sendRequests)
                         )
                         .filter {
-                            it.readableBytes() > 2 //skip 0x1a00 TODO
+                            if (it.readableBytes() <= 2) { //skip 0x1a00 TODO
+                                it.release()
+                                false
+                            } else {
+                                true
+                            }
                         }
                         .take(3) //usually it returns up to 3 messages
                         .take(Duration.ofSeconds(15))

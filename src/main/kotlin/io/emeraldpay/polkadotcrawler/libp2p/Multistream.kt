@@ -4,7 +4,7 @@ import com.google.protobuf.CodedOutputStream
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.ByteBufUtil
 import io.netty.buffer.Unpooled
-import org.reactivestreams.Publisher
+import io.netty.util.ReferenceCountUtil
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
@@ -78,7 +78,7 @@ class Multistream {
             } else {
                 if (input.isReadable) {
                     headerBuffer = if (headerBuffer == null) {
-                        input.copy()
+                        input.retain()
                     } else {
                         Unpooled.wrappedBuffer(headerBuffer, input)
                     }
@@ -89,28 +89,35 @@ class Multistream {
         }
         return Function { flux ->
             flux.bufferUntil(allRead)
+                    .doFinally {
+                        headerBuffer?.release()
+                    }
                     .flatMap { list ->
                         if (headerBuffer == null) {
                             //list always has 1 element after header was found
                             Flux.fromIterable(list)
                         } else {
                             val ref = headerBuffer!!
-                            headerBuffer = null
+                            val result: ByteBuf
+                            try {
+                                headerBuffer = null
+                                val expectedHeader: ByteBuf = Unpooled.wrappedBuffer(exp.array())
+                                val actualHeader: ByteBuf = ref.retainedSlice(0, headerSize)
 
-                            if (ref.readableBytes() < headerSize) {
-                                val msg = "Insufficient data. Expect $headerSize, have ${ref.readableBytes()}"
+                                try {
+                                    if (actualHeader != expectedHeader) {
+                                        System.err.println("Actual:\n" + ByteBufUtil.prettyHexDump(actualHeader))
+                                        System.err.println("Expected:\n" + ByteBufUtil.prettyHexDump(expectedHeader))
+                                        return@flatMap Mono.error<ByteBuf>(IllegalStateException("Received invalid header"))
+                                    }
+                                    result = ref.retainedSlice(headerSize, ref.readableBytes() - headerSize)
+                                } finally {
+                                    actualHeader.release()
+                                    expectedHeader.release()
+                                }
+                            } finally {
                                 ref.release()
-                                throw IllegalStateException(msg)
                             }
-                            val expected = Unpooled.wrappedBuffer(exp.array())
-                            if (ref.slice(0, headerSize) != expected) {
-                                System.err.println("Actual:\n" + ByteBufUtil.prettyHexDump(ref.slice(0, headerSize)))
-                                System.err.println("Expected:\n" + ByteBufUtil.prettyHexDump(expected))
-                                ref.release()
-                                throw IllegalStateException("Received invalid header")
-                            }
-                            expected.release()
-                            val result = ref.slice(headerSize, ref.readableBytes() - headerSize)
                             if (onFound != null) {
                                 onFound.thenReturn(result)
                             } else {

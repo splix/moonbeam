@@ -115,7 +115,14 @@ class Secio(
                 .transform(SizePrefixed.Standard().reader())
                 .take(2)
                 .collectList()
-                .filter { it.size == 2 }
+                .filter {
+                    if (it.size == 2) {
+                        true
+                    } else {
+                        it.forEach { b -> b.release() }
+                        false
+                    }
+                }
                 .map { readSecioPropose(it.get(0), it.get(1)); true }
                 .doOnError { log.error("Failed to setup Secio connection", it) }
                 .thenMany(Flux.concat(replyExchange(), replyNonce()))
@@ -125,9 +132,13 @@ class Secio(
         return input
                 .take(1)
                 .map { msg ->
-                    val arr = ByteArray(msg.readableBytes())
-                    msg.readBytes(arr)
-                    msg.release()
+                    val arr: ByteArray
+                    try {
+                        arr = ByteArray(msg.readableBytes())
+                        msg.readBytes(arr)
+                    } finally {
+                        msg.release()
+                    }
                     arr
                 }.doOnNext {
                     if (!nonce.contentEquals(it)) {
