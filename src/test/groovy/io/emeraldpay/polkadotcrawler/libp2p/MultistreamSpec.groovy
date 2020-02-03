@@ -28,7 +28,7 @@ class MultistreamSpec extends Specification {
                 }
         when:
         def act = source
-                .transform(multistream.readProtocol("/secio/1.0.0", true))
+                .transform(multistream.readProtocol("/secio/1.0.0", true, null))
                 .map {
                     def copy = new byte[it.readableBytes()]
                     it.readBytes(copy)
@@ -62,7 +62,7 @@ class MultistreamSpec extends Specification {
                 }
         when:
         def act = source
-                .transform(multistream.readProtocol("/secio/1.0.0", true))
+                .transform(multistream.readProtocol("/secio/1.0.0", true, null))
                 .map {
                     def copy = new byte[it.readableBytes()]
                     it.readBytes(copy)
