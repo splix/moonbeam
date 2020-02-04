@@ -1,5 +1,6 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
+import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.ByteBufHolder
@@ -12,6 +13,7 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.extra.processor.TopicProcessor
 import java.io.Closeable
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.util.concurrent.atomic.AtomicLong
 
@@ -26,9 +28,9 @@ class Mplex: AutoCloseable {
     private val multistream = Multistream()
     private val seq = AtomicLong(1000);
     private val messages = TopicProcessor.create<Message>()
-    private val outbound = TopicProcessor.create<ByteBuf>()
+    private val outbound = TopicProcessor.create<ByteBuffer>()
 
-    fun start(): Publisher<ByteBuf> {
+    fun start(): Publisher<ByteBuffer> {
         val starter = multistream.headerFor("/mplex/6.7.0")
         return Flux.concat(Mono.just(starter), outbound)
     }
@@ -36,22 +38,19 @@ class Mplex: AutoCloseable {
     override fun close() {
         log.debug("Close Mplex connection")
         messages.dispose()
-        messages.drain().subscribe { it.release() }
-
         outbound.dispose()
-        outbound.drain().subscribe { it.release() }
     }
 
-    fun parse(msg: ByteBuf): List<Message> {
+    fun parse(msg: ByteBuffer): List<Message> {
         val result = ArrayList<Message>(1)
-        while (msg.readableBytes() > 0) {
+        while (msg.remaining() > 0) {
             val parsed = Message.decode(msg)
             result.add(parsed)
         }
         return result
     }
 
-    fun onNext(input: ByteBuf) {
+    fun onNext(input: ByteBuffer) {
         try {
             parse(input).forEachIndexed { i, msg ->
 //                val ascii = msg.content().toString(Charset.defaultCharset())
@@ -67,25 +66,23 @@ class Mplex: AutoCloseable {
             }
         } catch (e: java.lang.IllegalArgumentException) {
             log.warn("Invalid Mplex data")
-        } finally {
-            input.release()
         }
     }
 
-    private fun getMessages(source: Flux<Message>, id: Long, flag: Flag): Flux<ByteBuf> {
+    private fun getMessages(source: Flux<Message>, id: Long, flag: Flag): Flux<ByteBuffer> {
         return Flux.from(source)
                 .filter {
                     it.header.id == id && it.header.flag == flag
                 }
                 .map {
-                    it.content()
+                    it.data
                 }
     }
 
     fun <T> newStream(handler: Handler<T>): T {
         val id = seq.incrementAndGet()
-        val stream: Publisher<ByteBuf> = getMessages(Flux.from(messages), id, Flag.MessageReceiver)
-        val msg = Message(Header(Flag.NewStream, id), Unpooled.wrappedBuffer("stream $id".toByteArray()))
+        val stream: Publisher<ByteBuffer> = getMessages(Flux.from(messages), id, Flag.MessageReceiver)
+        val msg = Message(Header(Flag.NewStream, id), ByteBuffer.wrap("stream $id".toByteArray()))
         outbound.onNext(msg.encode())
         return handler.handle(id, stream, MplexOutbound(id, true, outbound))
     }
@@ -98,7 +95,7 @@ class Mplex: AutoCloseable {
                 }
                 .map { init ->
                     val id = init.header.id
-                    val stream: Publisher<ByteBuf> = getMessages(f, id, Flag.MessageInitiator)
+                    val stream: Publisher<ByteBuffer> = getMessages(f, id, Flag.MessageInitiator)
                     val outbound = MplexOutbound(id, false, outbound)
                     Flux.from(f)
                             .filter {
@@ -115,7 +112,7 @@ class Mplex: AutoCloseable {
     }
 
     class Header(val flag: Flag, val id: Long) {
-        fun encode(): ByteBuf {
+        fun encode(): ByteBuffer {
             val value = id.shl(3) + flag.id
             return converter.write(value)
         }
@@ -123,7 +120,7 @@ class Mplex: AutoCloseable {
         companion object {
             private val converter = SizePrefixed.VarlongSize()
 
-            fun decode(input: ByteBuf): Header {
+            fun decode(input: ByteBuffer): Header {
                 val value = converter.read(input)
                 val flagId = value.and(0x07);
                 val id = value.shr(3)
@@ -132,21 +129,22 @@ class Mplex: AutoCloseable {
         }
     }
 
-    class Message(val header: Header, data: ByteBuf): DefaultByteBufHolder(data) {
-        fun encode(): ByteBuf {
+    class Message(val header: Header, val data: ByteBuffer) {
+        fun encode(): ByteBuffer {
             val header = header.encode()
-            val length = VARINT_CONVERTER.write(this.content().readableBytes())
-            return Unpooled.wrappedBuffer(header, length, this.content())
+            val length = VARINT_CONVERTER.write(this.data.remaining())
+            return ByteBufferCommons.join(header, length, this.data)
         }
 
         companion object {
             private val converter = SizePrefixed.VarintSize()
 
-            fun decode(input: ByteBuf): Message {
+            fun decode(input: ByteBuffer): Message {
                 val header = Header.decode(input)
                 val len = VARINT_CONVERTER.read(input)
-                val data = input.readBytes(len)
-                return Message(header, data)
+                val data = ByteArray(len)
+                input.get(data)
+                return Message(header, ByteBuffer.wrap(data))
             }
         }
     }
@@ -167,7 +165,7 @@ class Mplex: AutoCloseable {
         }
     }
 
-    class MplexOutbound(val streamId: Long, val initiator: Boolean, private val outbound: TopicProcessor<ByteBuf>): AutoCloseable {
+    class MplexOutbound(val streamId: Long, val initiator: Boolean, private val outbound: TopicProcessor<ByteBuffer>): AutoCloseable {
 
         private val flag = if (initiator) {
             Flag.MessageInitiator
@@ -181,7 +179,7 @@ class Mplex: AutoCloseable {
             Flag.CloseReceiver
         }
 
-        fun send(value: Publisher<ByteBuf>): Mono<Void> {
+        fun send(value: Publisher<ByteBuffer>): Mono<Void> {
             return Flux.from(value)
                     .map {
                         val msg = Message(Header(flag, streamId), it)
@@ -196,12 +194,12 @@ class Mplex: AutoCloseable {
 
         override fun close() {
             log.debug("Close stream $streamId")
-            val msg = Message(Header(closeFlag, streamId), Unpooled.EMPTY_BUFFER).encode()
+            val msg = Message(Header(closeFlag, streamId), ByteBuffer.allocate(0)).encode()
             outbound.onNext(msg)
         }
     }
 
     interface Handler<T> {
-        fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: MplexOutbound): T
+        fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: MplexOutbound): T
     }
 }

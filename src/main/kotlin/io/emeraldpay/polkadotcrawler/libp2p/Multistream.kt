@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
 import com.google.protobuf.CodedOutputStream
+import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.ByteBufUtil
 import io.netty.buffer.Unpooled
@@ -11,6 +12,7 @@ import reactor.core.publisher.Mono
 import java.nio.ByteBuffer
 import java.util.function.Function
 import java.util.function.Predicate
+import kotlin.streams.toList
 
 class Multistream {
 
@@ -19,37 +21,27 @@ class Multistream {
         private val NAME = "/multistream/1.0.0"
         private val LEN_PREFIX_SIZE = 1;
         private val NL_SIZE = 1;
+
+        private val sizePrefix = SizePrefixed.Varint().prefix
     }
 
-    fun headerFor(protocol: String): ByteBuf {
-        return listOf(NAME, protocol).stream()
-                .map { it + "\n" }
-                .map { it.toByteArray() }
-                .flatMap {
-                    val buf = ByteArray(CodedOutputStream.computeUInt32SizeNoTag(it.size))
-                    CodedOutputStream.newInstance(buf).writeInt32NoTag(it.size)
-                    listOf(
-                            buf,
-                            it
-                    ).stream()
-                }
-                .map {
-                    Unpooled.wrappedBuffer(it)
-                }
-                .reduce { a: ByteBuf, b: ByteBuf -> Unpooled.wrappedBuffer(a, b) }
-                .get()
+    fun headerFor(protocol: String): ByteBuffer {
+        val size1 = sizePrefix.write(NAME.length + 1)
+        val size2 = sizePrefix.write(protocol.length + 1)
+
+        val result = ByteBuffer.allocate(NAME.length + protocol.length + 2 + size1.remaining() + size2.remaining())
+        result.put(size1)
+        result.put(NAME.toByteArray())
+        result.put('\n'.toByte())
+        result.put(size2)
+        result.put(protocol.toByteArray())
+        result.put('\n'.toByte())
+
+        return result.flip()
     }
 
-    fun write(value: ByteBuf, protocol: String): ByteBuf {
-        val header = headerFor(protocol)
-        val body = SizePrefixed.Standard().write(value)
-        return Unpooled.wrappedBuffer(
-                header, body
-        )
-    }
-
-    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
-        var headerBuffer: ByteBuf? = null
+    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
+        var headerBuffer: ByteBuffer? = null
 
         var headerSize = NAME.length + NL_SIZE + protocol.length + NL_SIZE
 
@@ -68,56 +60,43 @@ class Multistream {
         }
         exp.put(protocol.toByteArray())
         exp.put("\n".toByteArray())
-        exp.array()
 
         var headerFound = false
 
-        val allRead: Predicate<ByteBuf> = Predicate { input ->
+        val allRead: Predicate<ByteBuffer> = Predicate { input ->
             if (headerFound) {
                 true
             } else {
-                if (input.isReadable) {
+                if (input.hasRemaining()) {
                     headerBuffer = if (headerBuffer == null) {
-                        input.retain()
+                        input
                     } else {
-                        Unpooled.wrappedBuffer(headerBuffer, input)
+                        ByteBufferCommons.join(headerBuffer!!, input)
                     }
                 }
-                headerFound = headerBuffer != null && headerBuffer!!.readableBytes() >= headerSize
+                headerFound = headerBuffer != null && headerBuffer!!.remaining() >= headerSize
                 headerFound
             }
         }
         return Function { flux ->
             flux.bufferUntil(allRead)
-                    .doFinally {
-                        headerBuffer?.release()
-                    }
                     .flatMap { list ->
                         if (headerBuffer == null) {
                             //list always has 1 element after header was found
                             Flux.fromIterable(list)
                         } else {
                             val ref = headerBuffer!!
-                            val result: ByteBuf
-                            try {
-                                headerBuffer = null
-                                val expectedHeader: ByteBuf = Unpooled.wrappedBuffer(exp.array())
-                                val actualHeader: ByteBuf = ref.retainedSlice(0, headerSize)
+                            val result: ByteBuffer
+                            headerBuffer = null
+                            val expectedHeader: ByteBuffer = exp.flip()
+                            val actualHeader: ByteBuffer = ByteBufferCommons.copy(ref, headerSize)
 
-                                try {
-                                    if (actualHeader != expectedHeader) {
-                                        System.err.println("Actual:\n" + ByteBufUtil.prettyHexDump(actualHeader))
-                                        System.err.println("Expected:\n" + ByteBufUtil.prettyHexDump(expectedHeader))
-                                        return@flatMap Mono.error<ByteBuf>(IllegalStateException("Received invalid header"))
-                                    }
-                                    result = ref.retainedSlice(headerSize, ref.readableBytes() - headerSize)
-                                } finally {
-                                    actualHeader.release()
-                                    expectedHeader.release()
-                                }
-                            } finally {
-                                ref.release()
+                            if (actualHeader != expectedHeader) {
+                                System.err.println("Actual:\n" + ByteBufUtil.prettyHexDump(Unpooled.wrappedBuffer(actualHeader)))
+                                System.err.println("Expected:\n" + ByteBufUtil.prettyHexDump(Unpooled.wrappedBuffer(expectedHeader)))
+                                return@flatMap Mono.error<ByteBuffer>(IllegalStateException("Received invalid header"))
                             }
+                            result = ByteBufferCommons.copy(ref, ref.remaining())
                             if (onFound != null) {
                                 onFound.thenReturn(result)
                             } else {
@@ -127,12 +106,7 @@ class Multistream {
                     }
                     .filter {
                         // skip if header took whole space
-                        if (it.readableBytes() == 0) {
-                            it.release()
-                            false
-                        } else {
-                            true
-                        }
+                        it.remaining() > 0
                     }
 
         }

@@ -9,6 +9,7 @@ import io.netty.buffer.Unpooled
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
+import java.nio.ByteBuffer
 
 
 class DhtProtocol {
@@ -19,30 +20,26 @@ class DhtProtocol {
 
     private val sizePrefixed = SizePrefixed.Varint()
 
-    fun start(): Flux<ByteBuf> {
+    fun start(): Flux<ByteBuffer> {
         return Flux.range(0, 3).map {
             request()
         }
     }
 
-    fun request(): ByteBuf {
+    fun request(): ByteBuffer {
         val key = PeerId.random()
         val msg = Dht.Message.newBuilder()
                 .setType(Dht.Message.MessageType.FIND_NODE)
                 .setKey(ByteString.copyFrom(key.bytes))
                 .build()
-        return sizePrefixed.write(Unpooled.wrappedBuffer(msg.toByteArray()))
+        return sizePrefixed.write(ByteBuffer.wrap(msg.toByteArray()))
     }
 
-    fun parse(data: ByteBuf): Dht.Message {
+    fun parse(data: ByteBuffer): Dht.Message {
 //        DebugCommons.trace("PARSE DHT", it)
-        try {
-            return Dht.Message.parseFrom(
-                    ByteBufInputStream(data)
-            )
-        } finally {
-            data.release()
-        }
+        return Dht.Message.parseFrom(
+                data.array()
+        )
     }
 
 }

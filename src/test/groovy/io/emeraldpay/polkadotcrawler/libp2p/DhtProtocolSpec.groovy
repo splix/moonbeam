@@ -5,6 +5,8 @@ import io.netty.buffer.Unpooled
 import org.apache.commons.codec.binary.Hex
 import spock.lang.Specification
 
+import java.nio.ByteBuffer
+
 class DhtProtocolSpec extends Specification {
 
     def "Parse msg"() {
@@ -13,7 +15,7 @@ class DhtProtocolSpec extends Specification {
         def msg = Hex.decodeHex(hex)
         def protocol = new DhtProtocol()
         when:
-        Dht.Message act = protocol.parse(Unpooled.wrappedBuffer(msg))
+        Dht.Message act = protocol.parse(ByteBuffer.wrap(msg))
         then:
         act != null
         println(act)

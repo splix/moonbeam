@@ -3,12 +3,14 @@ package io.emeraldpay.polkadotcrawler.libp2p
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.CodedOutputStream
 import com.google.protobuf.InvalidProtocolBufferException
+import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import java.io.ByteArrayOutputStream
+import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 import java.util.function.Function
 import java.util.function.Predicate
@@ -32,39 +34,42 @@ class SizePrefixed {
 
     class Converter(val prefix: SizePrefix<Int>) {
 
-        fun scanForExpected(data: ByteBuf): Int {
-            if (data.readableBytes() == 0) {
+        fun scanForExpected(data: ByteBuffer): Int {
+            if (data.remaining() == 0) {
                 return 0
             }
-            val pos = data.readerIndex()
+            val pos = data.position()
             val len = try {
                 prefix.read(data)
-            } catch (e: IndexOutOfBoundsException) {
-                data.readerIndex(pos)
+            } catch (e: BufferUnderflowException) {
+                data.position(pos)
                 // for Standard can calculate exact
-                return 4 - data.readableBytes()
+                return 4 - data.remaining()
             } catch (e: InvalidProtocolBufferException) {
                 // Error Message: While parsing a protocol message, the input ended unexpectedly in the middle of a field.  This could mean either that the input has been truncated or that an embedded message misreported its own length.
                 // for Varint needs at least one byte
-                data.readerIndex(pos)
-                return data.readableBytes() + 1
+                data.position(pos)
+                return data.remaining() + 1
             }
-            if (data.readableBytes() < len) {
-                return len - data.readableBytes()
+            if (len < 0) {
+                throw IllegalStateException("Invalid len: $len")
             }
-            return scanForExpected(data.skipBytes(len))
+            if (data.remaining() < len) {
+                return len - data.remaining()
+            }
+            return scanForExpected(data.position(data.position() + len))
         }
 
-        fun isFullyRead(): Predicate<ByteBuf> {
+        fun isFullyRead(): Predicate<ByteBuffer> {
             var expect = 0
             return Predicate {
                 var copy = it.slice()
                 if (expect > 0) {
-                    val len = min(expect, copy.readableBytes())
+                    val len = min(expect, copy.remaining())
                     if (len == 0) {
                         throw IllegalStateException("0 to read")
                     }
-                    copy = copy.skipBytes(len)
+                    copy = copy.position(copy.position() + len)
                     expect -= len
                     if (expect == 0) {
                         expect = scanForExpected(copy)
@@ -76,61 +81,49 @@ class SizePrefixed {
             }
         }
 
-        fun split(data: ByteBuf): List<ByteBuf> {
+        fun split(data: ByteBuffer): List<ByteBuffer> {
             if (Unpooled.EMPTY_BUFFER == data) {
                 return emptyList()
             }
 
-            val result = ArrayList<ByteBuf>()
-            try {
-                while (data.readableBytes() > 0) {
-                    var len = prefix.read(data)
-                    if (data.readableBytes() < len) {
-                        log.warn("Have less than expected. Have ${data.readableBytes()} < $len requested (as ${DebugCommons.toHex(prefix.write(len))})")
-                        len = data.readableBytes()
-                    }
-                    val actualData = data.readSlice(len).retain()
-                    result.add(actualData)
+            val result = ArrayList<ByteBuffer>()
+            while (data.remaining() > 0) {
+                var len = prefix.read(data)
+                if (data.remaining() < len) {
+                    log.warn("Have less than expected. Have ${data.remaining()} < $len requested (as ${DebugCommons.toHex(prefix.write(len))})")
+                    len = data.remaining()
                 }
-            } finally {
-                data.release()
+                val actualData = ByteBufferCommons.copy(data, len)
+                result.add(actualData)
             }
 
             return result
         }
 
-        fun reader(): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+        fun reader(): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
             return Function { flux ->
-                flux.map { it.retain() }
-                        .bufferUntil(isFullyRead())
+                flux.bufferUntil(isFullyRead())
                         .map {  list ->
                             if (list.size == 1) {
                                 list.first()
                             } else {
-                                Unpooled.wrappedBuffer(*list.toTypedArray())
+                                ByteBufferCommons.join(*list.toTypedArray())
                             }
                         }
                         .flatMap {
                             Flux.fromIterable(split(it))
                         }
                         .filter {
-                            if (it.readableBytes() == 0) {
-                                it.release()
-                                false
-                            } else {
-                                true
-                            }
+                            it.remaining() > 0
                         }
             }
         }
 
-        fun write(bytes: ByteBuf): ByteBuf {
-            return Unpooled.wrappedBuffer(
-                    prefix.write(bytes.readableBytes()), bytes
-            )
+        fun write(bytes: ByteBuffer): ByteBuffer {
+            return ByteBufferCommons.join(prefix.write(bytes.remaining()), bytes)
         }
 
-        fun writer(): Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+        fun writer(): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
             return Function { flux ->
                 flux.map { bytes -> write(bytes) }
             }
@@ -138,51 +131,52 @@ class SizePrefixed {
     }
 
     interface SizePrefix<T: Number> {
-        fun read(input: ByteBuf): T;
-        fun write(value: T): ByteBuf;
+        fun read(input: ByteBuffer): T
+        fun write(value: T): ByteBuffer
     }
 
     class StandardSize(): SizePrefix<Int> {
-        override fun read(input: ByteBuf): Int {
-            return input.readInt()
+        override fun read(input: ByteBuffer): Int {
+            return input.getInt()
         }
 
-        override fun write(value: Int): ByteBuf {
-            return Unpooled.wrappedBuffer(ByteBuffer.allocate(4).putInt(value).array())
+        override fun write(value: Int): ByteBuffer {
+            return ByteBuffer.allocate(4).putInt(value).flip()
         }
+
     }
 
     class VarintSize(): SizePrefix<Int> {
-        override fun read(input: ByteBuf): Int {
-            val coded = CodedInputStream.newInstance(input.nioBuffer())
+        override fun read(input: ByteBuffer): Int {
+            val coded = CodedInputStream.newInstance(input)
             val result = coded.readUInt32()
-            input.skipBytes(coded.totalBytesRead)
+            input.position(input.position() + coded.totalBytesRead)
             return result
         }
 
-        override fun write(value: Int): ByteBuf {
+        override fun write(value: Int): ByteBuffer {
             val buf = ByteArrayOutputStream()
             val input = CodedOutputStream.newInstance(buf)
             input.writeUInt32NoTag(value)
             input.flush()
-            return Unpooled.wrappedBuffer(buf.toByteArray())
+            return ByteBuffer.wrap(buf.toByteArray())
         }
     }
 
     class VarlongSize(): SizePrefix<Long> {
-        override fun read(input: ByteBuf): Long {
-            val coded = CodedInputStream.newInstance(input.nioBuffer())
+        override fun read(input: ByteBuffer): Long {
+            val coded = CodedInputStream.newInstance(input)
             val result = coded.readUInt64()
-            input.skipBytes(coded.totalBytesRead)
+            input.position(input.position() + coded.totalBytesRead)
             return result
         }
 
-        override fun write(value: Long): ByteBuf {
+        override fun write(value: Long): ByteBuffer {
             val buf = ByteArrayOutputStream()
             val input = CodedOutputStream.newInstance(buf)
             input.writeUInt64NoTag(value)
             input.flush()
-            return Unpooled.wrappedBuffer(buf.toByteArray())
+            return ByteBuffer.wrap(buf.toByteArray())
         }
     }
 }

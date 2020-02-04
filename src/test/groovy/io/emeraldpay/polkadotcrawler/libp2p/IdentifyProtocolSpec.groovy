@@ -4,6 +4,8 @@ import io.netty.buffer.Unpooled
 import org.apache.commons.codec.binary.Hex
 import spock.lang.Specification
 
+import java.nio.ByteBuffer
+
 class IdentifyProtocolSpec extends Specification {
 
     def "Parse message"() {
@@ -13,7 +15,7 @@ class IdentifyProtocolSpec extends Specification {
         def protocol = new IdentifyProtocol()
 
         when:
-        def act = protocol.parse(Unpooled.wrappedBuffer(msg))
+        def act = protocol.parse(ByteBuffer.wrap(msg))
 
         then:
         act != null

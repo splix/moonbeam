@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
+import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.proto.Dht
@@ -25,6 +26,7 @@ import reactor.netty.NettyInbound
 import reactor.netty.NettyOutbound
 import reactor.netty.tcp.TcpClient
 import java.net.UnknownHostException
+import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.time.Duration
 import java.util.concurrent.CancellationException
@@ -106,7 +108,7 @@ class CrawlerClient(
 
     fun requestDht(mplex: Mplex): Flux<Data<Dht.Message>> {
         return mplex.newStream(object: Mplex.Handler<Flux<Data<Dht.Message>>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
                 val dht = DhtProtocol()
                 val sendRequests = outboud
                         .send(dht.start())
@@ -120,15 +122,8 @@ class CrawlerClient(
                         .transform(
                                 multistream.readProtocol("/ipfs/kad/1.0.0", false, sendRequests)
                         )
-                        .filter {
-                            if (it.readableBytes() <= 2) { //skip 0x1a00 TODO
-                                it.release()
-                                false
-                            } else {
-                                true
-                            }
-                        }
-                        .take(3) //usually it returns up to 3 messages
+                        .filter { it.remaining() > 2 } //skip 0x1a00 TODO
+                        .take(3) //usually it returns no more than 3 messages
                         .take(Duration.ofSeconds(15))
                         .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("DHT")))
                         .retry(3)
@@ -152,7 +147,7 @@ class CrawlerClient(
 
     fun requestIdentify(mplex: Mplex): Mono<Data<IdentifyOuterClass.Identify>> {
         return mplex.newStream(object: Mplex.Handler<Mono<Data<IdentifyOuterClass.Identify>>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Data<IdentifyOuterClass.Identify>> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Mono<Data<IdentifyOuterClass.Identify>> {
                 val identify = IdentifyProtocol()
                 val result  = Flux.from(inboud)
                         .doOnSubscribe {
@@ -183,27 +178,23 @@ class CrawlerClient(
 
     fun respondStandardRequests(mplex: Mplex): Mono<Void> {
         return mplex.receiveStreams(object: Mplex.Handler<Mono<Void>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuf>, outboud: Mplex.MplexOutbound): Mono<Void> {
+            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Mono<Void> {
                 val repl = Flux.from(inboud)
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
                                 val msg = signal.get()!!
-                                try {
-                                    if (msg.toString(Charset.defaultCharset()).contains("/ipfs/ping/1.0.0")) {
-                                        val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
-                                        val response = flux.skip(1).take(1).single()
-                                        return@switchOnFirst Flux.concat(start, response).doFinally { outboud.close() }
-                                    } else if (msg.toString(Charset.defaultCharset()).contains("/ipfs/id/1.0.0")) {
-                                        val value = Mono.just(Unpooled.wrappedBuffer(agent.toByteArray()))
-                                        return@switchOnFirst Flux.concat(value).doFinally { outboud.close() }
-                                    } else {
-                                        log.debug("Request to an unsupported protocol")
-                                    }
-                                } finally {
-                                    msg.release()
+                                if (ByteBufferCommons.contains(msg, "/ipfs/ping/1.0.0".toByteArray())) {
+                                    val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
+                                    val response = flux.skip(1).take(1).single()
+                                    return@switchOnFirst Flux.concat(start, response).doFinally { outboud.close() }
+                                } else if (ByteBufferCommons.contains(msg,"/ipfs/id/1.0.0".toByteArray())) {
+                                    val value = ByteBuffer.wrap(agent.toByteArray())
+                                    return@switchOnFirst Flux.just(value).doFinally { outboud.close() }
+                                } else {
+                                    log.debug("Request to an unsupported protocol")
                                 }
                             }
-                            Flux.empty<ByteBuf>()
+                            Flux.empty<ByteBuffer>()
                         }
                 return outboud.send(repl)
             }
@@ -218,12 +209,20 @@ class CrawlerClient(
         val secio = Secio(keys.first)
         val mplex = Mplex()
 
-        val proposeSecio = Mono.just(multistream.write(
-                Unpooled.wrappedBuffer(secio.propose().toByteArray()),
-                "/secio/1.0.0"
-        ))
+        val proposeSecio = Flux.concat(
+                Mono.just(multistream.headerFor("/secio/1.0.0")),
+                Mono.just(SizePrefixed.Standard().write(ByteBuffer.wrap(secio.propose().toByteArray())))
+        )
 
-        val receive = inbound.receive().share()
+        val receive = inbound.receive()
+                .map {
+                    val copy = ByteBuffer.allocate(it.readableBytes())
+                    it.readBytes(copy)
+//                    it.release()
+                    copy.flip()
+                }
+                .share()
+
 
         val establishSecio = secio.readSecio(receive)
 
@@ -272,7 +271,9 @@ class CrawlerClient(
                         proposeSecio,
                         establishSecio,
                         receiveSecioNonce.thenMany(mplexOutbound)
-                )
+                ).map {
+                    Unpooled.wrappedBuffer(it)
+                }
         )
 
         return Flux.merge(

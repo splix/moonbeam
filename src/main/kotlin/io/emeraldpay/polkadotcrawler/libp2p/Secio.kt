@@ -11,12 +11,8 @@ import io.libp2p.crypto.keys.decodeEcdsaPublicKeyUncompressed
 import io.libp2p.crypto.keys.generateEcdsaKeyPair
 import io.libp2p.crypto.stretchKeys
 import io.libp2p.etc.types.compareTo
-import io.libp2p.etc.types.toByteArray
 import io.libp2p.etc.types.toProtobuf
 import io.libp2p.security.secio.*
-import io.netty.buffer.ByteBuf
-import io.netty.buffer.ByteBufInputStream
-import io.netty.buffer.Unpooled
 import org.apache.commons.codec.binary.Hex
 import org.bouncycastle.crypto.StreamCipher
 import org.bouncycastle.crypto.digests.SHA256Digest
@@ -76,31 +72,24 @@ class Secio(
         return established
     }
 
-    fun replyNonce(): Publisher<ByteBuf> {
+    fun replyNonce(): Publisher<ByteBuffer> {
         return Mono.just(this)
-                .map { Unpooled.wrappedBuffer(it.remoteNonce) }
+                .map { ByteBuffer.wrap(it.remoteNonce) }
                 .map(encoder())
                 .doOnError { t -> log.error("Secio nonce reply failure", t) }
     }
 
-    fun replyExchange(): Publisher<ByteBuf> {
+    fun replyExchange(): Publisher<ByteBuffer> {
         return Mono.just(this)
-                .map { Unpooled.wrappedBuffer(it.buildExchange().toByteArray()) }
+                .map { ByteBuffer.wrap(it.buildExchange().toByteArray()) }
                 .flux()
                 .transform(SizePrefixed.Standard().writer())
                 .doOnError { t -> log.error("Secio write failure", t) }
     }
 
-    fun readSecioPropose(proposeMsg: ByteBuf, exchangeMsg: ByteBuf) {
-        val propose: Spipe.Propose
-        val exchange: Spipe.Exchange
-        try {
-            propose = Spipe.Propose.parseFrom(ByteBufInputStream(proposeMsg))
-            exchange = Spipe.Exchange.parseFrom(ByteBufInputStream(exchangeMsg))
-        } finally {
-            proposeMsg.release()
-            exchangeMsg.release()
-        }
+    fun readSecioPropose(proposeMsg: ByteBuffer, exchangeMsg: ByteBuffer) {
+        val propose: Spipe.Propose = Spipe.Propose.parseFrom(proposeMsg.array())
+        val exchange: Spipe.Exchange = Spipe.Exchange.parseFrom(exchangeMsg.array())
 
         setRemotePropose(propose)
         setupKeys(exchange)
@@ -109,37 +98,25 @@ class Secio(
         log.debug("Secio is established")
     }
 
-    fun readSecio(input: Flux<ByteBuf>): Flux<ByteBuf> {
+    fun readSecio(input: Flux<ByteBuffer>): Flux<ByteBuffer> {
         return input
                 .transform(multistream.readProtocol("/secio/1.0.0"))
                 .transform(SizePrefixed.Standard().reader())
                 .take(2)
                 .collectList()
                 .filter {
-                    if (it.size == 2) {
-                        true
-                    } else {
-                        it.forEach { b -> b.release() }
-                        false
-                    }
+                    it.size == 2
                 }
                 .map { readSecioPropose(it.get(0), it.get(1)); true }
                 .doOnError { log.error("Failed to setup Secio connection", it) }
                 .thenMany(Flux.concat(replyExchange(), replyNonce()))
     }
 
-    fun readNonce(input: Flux<ByteBuf>): Mono<Void> {
+    fun readNonce(input: Flux<ByteBuffer>): Mono<Void> {
         return input
                 .take(1)
                 .map { msg ->
-                    val arr: ByteArray
-                    try {
-                        arr = ByteArray(msg.readableBytes())
-                        msg.readBytes(arr)
-                    } finally {
-                        msg.release()
-                    }
-                    arr
+                    msg.array()
                 }.doOnNext {
                     if (!nonce.contentEquals(it)) {
                         log.error("Remote returned invalid Nonce. ${Hex.encodeHexString(it)} != ${Hex.encodeHexString(nonce)}")
@@ -213,38 +190,32 @@ class Secio(
         remoteCipher = SecIoCodec.createCipher(remoteParams)
     }
 
-    fun encoder(): java.util.function.Function<ByteBuf, ByteBuf> {
+    fun encoder(): java.util.function.Function<ByteBuffer, ByteBuffer> {
         return java.util.function.Function { input ->
 //            DebugCommons.trace("ENCRYPT", input, true)
-            val cipherText: ByteArray
-            try {
-                cipherText = processBytes(localCipher, input.toByteArray())
-            } finally {
-                input.release()
-            }
+            val cipherText: ByteArray = processBytes(localCipher, input.array())
             val macArr = updateMac(localParams, cipherText)
-            Unpooled.wrappedBuffer(
-                    ByteBuffer.allocate(4).putInt(cipherText.size + macArr.size).array(),
-                    cipherText,
-                    macArr
-            )
+            val result = ByteBuffer.allocate(4 + cipherText.size + macArr.size)
+            result.putInt(cipherText.size + macArr.size)
+            result.put(cipherText)
+            result.put(macArr)
+            result.flip()
         }
     }
 
-    fun frameDecoder(): java.util.function.Function<Flux<ByteBuf>, Flux<ByteBuf>> {
+    fun frameDecoder(): java.util.function.Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
         return java.util.function.Function { flux ->
             flux.map { input ->
-                val cipherBytes = ByteArray(input.readableBytes() - remoteParams.mac.macSize)
-                input.readBytes(cipherBytes)
+                val cipherBytes = ByteArray(input.remaining() - remoteParams.mac.macSize)
+                input.get(cipherBytes)
                 val macBytes  = ByteArray(remoteParams.mac.macSize)
-                input.readBytes(macBytes)
-                input.release()
+                input.get(macBytes)
 
                 val macArr = updateMac(remoteParams, cipherBytes)
                 if (!macBytes.contentEquals(macArr) || macBytes.isEmpty())
                     throw MacMismatch()
 
-                val clearText = Unpooled.wrappedBuffer(processBytes(remoteCipher, cipherBytes))
+                val clearText = ByteBuffer.wrap(processBytes(remoteCipher, cipherBytes))
 //                DebugCommons.trace("DECRYPTED", clearText, false)
                 clearText
             }
