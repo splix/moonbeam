@@ -59,17 +59,16 @@ class Crawler(
                 .flatMap({
                     connect(it).retry(3) { t ->
                         t is NotLoadedException
+                    }.onErrorResume { t ->
+                        if (t is NotLoadedException) {
+                            log.debug("Peer not loaded. ${t.peer.address}")
+                            noRecentChecks.forget(t.peer.address)
+                        } else {
+                            log.warn("Failed to connect", t)
+                        }
+                        Mono.empty()
                     }.subscribeOn(Schedulers.elastic())
                 }, 8)
-                .onErrorResume { t ->
-                    if (t is NotLoadedException) {
-                        log.debug("Peer not loaded. ${t.peer.address}")
-                        noRecentChecks.forget(t.peer.address)
-                    } else {
-                        log.warn("Failed to connect", t)
-                    }
-                    Flux.empty()
-                }
                 .subscribe {
                     it.dump()
                 }
