@@ -23,6 +23,9 @@ class PublicPeersOnly: Predicate<Multiaddr> {
             }
             return true
         }
+        if (t.has(Protocol.WS)) {
+            return false
+        }
         if (t.has(Protocol.IP4)) {
             val ip4 = t.getStringComponent(Protocol.IP4)!!
             try {
