@@ -56,11 +56,11 @@ class Crawler(
         Flux.from(discovered.listen())
                 .subscribeOn(Schedulers.newSingle("crawler"))
                 .filter(noRecentChecks)
-                .flatMap {
+                .flatMap({
                     connect(it).retry(3) { t ->
                         t is NotLoadedException
                     }.subscribeOn(Schedulers.elastic())
-                }
+                }, 8)
                 .onErrorResume { t ->
                     if (t is NotLoadedException) {
                         log.debug("Peer not loaded. ${t.peer.address}")
