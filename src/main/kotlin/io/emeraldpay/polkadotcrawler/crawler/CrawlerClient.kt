@@ -46,9 +46,8 @@ class CrawlerClient(
     private val multistream = Multistream()
 
     private val results = TopicProcessor.builder<Data<*>>()
-//            .share(true)
-            .autoCancel(true)
-            .name("client-data")
+            .share(true)
+            .name("connect")
             .build()
     private var connection: Connection? = null
 
@@ -64,7 +63,8 @@ class CrawlerClient(
     }
 
     fun disconnect() {
-        results.dispose()
+        log.debug("Disconnecting from $remote")
+        results.onComplete()
         connection?.dispose()
     }
 
@@ -109,7 +109,7 @@ class CrawlerClient(
     fun requestDht(mplex: Mplex): Flux<Data<Dht.Message>> {
         return mplex.newStream(object: Mplex.Handler<Flux<Data<Dht.Message>>> {
             override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
-                val dht = DhtProtocol()
+                val dht = DhtProtocol(remote)
                 val sendRequests = outboud
                         .send(dht.start())
                         .doFinally { outboud.close() }

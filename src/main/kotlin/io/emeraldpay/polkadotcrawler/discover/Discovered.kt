@@ -14,9 +14,12 @@ class Discovered {
         private val log = LoggerFactory.getLogger(Discovered::class.java)
     }
 
-    private val bus = TopicProcessor.create<Multiaddr>()
+    private val bus = TopicProcessor.builder<Multiaddr>()
+            .share(true)
+            .build()
 
     fun submit(address: Multiaddr) {
+        log.debug("Address to check $address")
         bus.onNext(address)
     }
 

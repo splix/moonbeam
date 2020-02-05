@@ -3,16 +3,13 @@ package io.emeraldpay.polkadotcrawler.libp2p
 import com.google.protobuf.ByteString
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.PeerId
-import io.netty.buffer.ByteBuf
-import io.netty.buffer.ByteBufInputStream
-import io.netty.buffer.Unpooled
-import org.reactivestreams.Publisher
+import io.libp2p.core.multiformats.Multiaddr
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import java.nio.ByteBuffer
 
 
-class DhtProtocol {
+class DhtProtocol(val address: Multiaddr) {
 
     companion object {
         private val log = LoggerFactory.getLogger(DhtProtocol::class.java)
@@ -21,15 +18,29 @@ class DhtProtocol {
     private val sizePrefixed = SizePrefixed.Varint()
 
     fun start(): Flux<ByteBuffer> {
-        return Flux.range(0, 3).map {
-            request()
-        }
+        return Flux.merge(
+                Flux.range(0, 4).map {
+                    requestNodes(it)
+                },
+                Flux.range(0, 4).map {
+                    requestProviders(it)
+                }
+        )
     }
 
-    fun request(): ByteBuffer {
+    fun requestNodes(i: Int): ByteBuffer {
         val key = PeerId.random()
         val msg = Dht.Message.newBuilder()
                 .setType(Dht.Message.MessageType.FIND_NODE)
+                .setKey(ByteString.copyFrom(key.bytes))
+                .build()
+        return sizePrefixed.write(ByteBuffer.wrap(msg.toByteArray()))
+    }
+
+    fun requestProviders(i: Int): ByteBuffer {
+        val key = PeerId.random()
+        val msg = Dht.Message.newBuilder()
+                .setType(Dht.Message.MessageType.GET_PROVIDERS)
                 .setKey(ByteString.copyFrom(key.bytes))
                 .build()
         return sizePrefixed.write(ByteBuffer.wrap(msg.toByteArray()))

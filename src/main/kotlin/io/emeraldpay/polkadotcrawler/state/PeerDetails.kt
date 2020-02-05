@@ -18,7 +18,8 @@ class PeerDetails(
     }
 
     private var agent: String? = null
-    private var peers: Int = 0
+    var peers: Int = 0
+        private set
 
     private lateinit var host: InetAddress
     private var port: Int? = null

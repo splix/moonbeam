@@ -68,7 +68,7 @@ class Crawler(
                         }
                         Mono.empty()
                     }.subscribeOn(Schedulers.elastic())
-                }, 8)
+                }, 32)
                 .subscribe {
                     it.dump()
                 }
@@ -94,19 +94,21 @@ class Crawler(
                                 val dht = it.cast(Dht.Message::class.java)
                                 details.add(dht.data)
 
-                                dht.data.closerPeersList.flatMap {
-                                    it.addrsList
-                                }.mapNotNull {
-                                    try {
-                                        Multiaddr(it.toByteArray())
-                                    } catch (e: java.lang.IllegalArgumentException) {
-                                        log.debug("Invalid address")
-                                        null
+                                listOf(dht.data.closerPeersList, dht.data.providerPeersList).forEach { peers ->
+                                    peers.flatMap {
+                                        it.addrsList
+                                    }.mapNotNull {
+                                        try {
+                                            Multiaddr(it.toByteArray())
+                                        } catch (e: java.lang.IllegalArgumentException) {
+                                            log.debug("Invalid address")
+                                            null
+                                        }
+                                    }.filter {
+                                        publicPeersOnly.test(it)
+                                    }.forEach {
+                                        discovered.submit(it)
                                     }
-                                }.filter {
-                                    publicPeersOnly.test(it)
-                                }.forEach {
-                                    discovered.submit(it)
                                 }
                             }
 

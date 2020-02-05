@@ -1,34 +1,34 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
-import io.emeraldpay.polkadotcrawler.DebugCommons
-import io.netty.buffer.ByteBuf
-import io.netty.buffer.ByteBufHolder
-import io.netty.buffer.DefaultByteBufHolder
-import io.netty.buffer.Unpooled
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
-import reactor.core.Disposable
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import reactor.extra.processor.TopicProcessor
-import java.io.Closeable
 import java.nio.ByteBuffer
-import java.nio.charset.Charset
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
 class Mplex: AutoCloseable {
 
     companion object {
         private val log = LoggerFactory.getLogger(Mplex::class.java)
-
+        private val EXECUTOR_SUBSCRIPTION = Executors.newFixedThreadPool(4, CustomizableThreadFactory("mplex-sub-"))
         private val VARINT_CONVERTER = SizePrefixed.VarintSize()
     }
 
     private val multistream = Multistream()
     private val seq = AtomicLong(1000);
-    private val messages = TopicProcessor.create<Message>()
-    private val outbound = TopicProcessor.create<ByteBuffer>()
+    private val messages = TopicProcessor.builder<Message>()
+            .name("mplex-in")
+            .build()
+    private val outbound = TopicProcessor.builder<ByteBuffer>()
+            .name("mplex-out")
+            .share(true)
+            .build()
 
     fun start(): Publisher<ByteBuffer> {
         val starter = multistream.headerFor("/mplex/6.7.0")
@@ -37,8 +37,8 @@ class Mplex: AutoCloseable {
 
     override fun close() {
         log.debug("Close Mplex connection")
-        messages.dispose()
-        outbound.dispose()
+        messages.onComplete()
+        outbound.onComplete()
     }
 
     fun parse(msg: ByteBuffer): List<Message> {
@@ -57,7 +57,7 @@ class Mplex: AutoCloseable {
 //                        .replace(Regex("[^\\w/\\\\.-]"), ".")
 //                        .toCharArray().joinToString(" ")
 //                val hex = DebugCommons.toHex(msg.content())
-//                DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.content(), false)
+//                DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false)
 //                log.debug("mplex message $i ${msg.header.flag} ${msg.header.id}")
 //                log.debug("      $hex")
 //                log.debug("      $ascii")
@@ -88,7 +88,9 @@ class Mplex: AutoCloseable {
     }
 
     fun <T> receiveStreams(handler: Handler<T>): Flux<T> {
-        val f = Flux.from(messages).share().cache(1)
+        val f = Flux.from(messages)
+                .subscribeOn(Schedulers.fromExecutor(EXECUTOR_SUBSCRIPTION))
+                .share().cache(1)
         val result = Flux.from(f)
                 .filter {
                     it.header.flag == Flag.NewStream
