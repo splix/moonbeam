@@ -2,21 +2,19 @@ package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
-import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.crypto.PrivKey
 import io.libp2p.core.crypto.PubKey
 import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
-import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.ConnectTimeoutException
+import io.netty.channel.unix.Errors
 import io.netty.handler.logging.LogLevel
 import io.netty.handler.logging.LoggingHandler
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
-import org.springframework.scheduling.concurrent.CustomizableThreadFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
@@ -25,13 +23,14 @@ import reactor.netty.Connection
 import reactor.netty.NettyInbound
 import reactor.netty.NettyOutbound
 import reactor.netty.tcp.TcpClient
+import reactor.util.function.Tuple2
+import reactor.util.function.Tuples
+import java.io.IOException
 import java.net.UnknownHostException
 import java.nio.ByteBuffer
-import java.nio.charset.Charset
 import java.time.Duration
 import java.util.concurrent.CancellationException
-import java.util.concurrent.Executors
-import java.util.concurrent.ThreadFactory
+import java.util.concurrent.CompletableFuture
 
 class CrawlerClient(
         private val remote: Multiaddr,
@@ -77,7 +76,16 @@ class CrawlerClient(
             val client = TcpClient.create()
                     .host(host)
                     .port(port)
-                    .handle(::handle)
+                    .handle { inbound, outbound ->
+                        Flux.from(handle(inbound, outbound)).onErrorResume { t ->
+                            if (t is IOException) {
+                                log.debug("Failed to connect to $remote")
+                            } else {
+                                log.warn("Handler failed to start", t)
+                            }
+                            Flux.empty()
+                        }
+                    }
                     .connect()
                     .doOnNext {
                         this.connection = it
@@ -106,99 +114,112 @@ class CrawlerClient(
         return Flux.empty()
     }
 
-    fun requestDht(mplex: Mplex): Flux<Data<Dht.Message>> {
-        return mplex.newStream(object: Mplex.Handler<Flux<Data<Dht.Message>>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Flux<Data<Dht.Message>> {
-                val dht = DhtProtocol(remote)
-                val sendRequests = outboud
-                        .send(dht.start())
-                        .doFinally { outboud.close() }
-                val result = Flux.from(inboud)
-                        .doOnSubscribe {
-                            outboud.send(Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))).subscribe()
-                        }
-                        .transform(SizePrefixed.Varint().reader())
+    fun requestDht(mplex: Mplex): Tuple2<
+            Flux<Data<Dht.Message>>,
+            Publisher<ByteBuffer>> {
+        val dht = DhtProtocol(remote)
+        val stream = mplex.newStream(
+                Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))
+        )
+
+        val headerReceived = CompletableFuture<Boolean>()
+
+        stream.send(
+                Mono.fromCompletionStage(headerReceived).thenMany(dht.start())
+        )
+
+        val onHeaderFound = Mono.just(headerReceived).doOnNext { it.complete(true) }.then()
+
+        val result = Flux.from(stream.inbound)
+                .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("DHT PACKET"))
-                        .transform(
-                                multistream.readProtocol("/ipfs/kad/1.0.0", false, sendRequests)
-                        )
-                        .filter { it.remaining() > 2 } //skip 0x1a00 TODO
-                        .take(3) //usually it returns no more than 3 messages
-                        .take(Duration.ofSeconds(15))
-                        .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("DHT")))
-                        .retry(3)
-                        .map {
-                            dht.parse(it)
-                        }
-                        .doOnError {
-                            if (it is DataTimeoutException) {
-                                log.debug("Timeout for ${it.name} from $remote")
-                            } else {
-                                log.warn("DHT not received", it)
-                            }
-                        }
-                        .onErrorResume { Mono.empty() }
-                        .map { Data(DataType.DHT_NODES, it) }
+                .transform(
+                        multistream.readProtocol("/ipfs/kad/1.0.0", false, onHeaderFound)
+                )
+                .filter { it.remaining() > 5 } //skip empty responses
+                .take(3) //usually it returns no more than 3 messages
+                .take(Duration.ofSeconds(15))
+                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("DHT")))
+                .retry(3)
+                .map {
+                    dht.parse(it)
+                }
+                .doOnError {
+                    if (it is DataTimeoutException) {
+                        log.debug("Timeout for ${it.name} from $remote")
+                    } else if (it is IOException) {
+                        log.debug("DHT not received. ${it.message}")
+                    } else {
+                        log.warn("DHT not received", it)
+                    }
+                }
+                .onErrorResume { Mono.empty() }
+                .map { Data(DataType.DHT_NODES, it) }
 
-                return result
-            }
-        })
+        return Tuples.of(
+                result,
+                stream.outbound()
+        )
     }
 
-    fun requestIdentify(mplex: Mplex): Mono<Data<IdentifyOuterClass.Identify>> {
-        return mplex.newStream(object: Mplex.Handler<Mono<Data<IdentifyOuterClass.Identify>>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Mono<Data<IdentifyOuterClass.Identify>> {
-                val identify = IdentifyProtocol()
-                val result  = Flux.from(inboud)
-                        .doOnSubscribe {
-                            outboud.send(Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))).subscribe()
-                        }
-                        .transform(SizePrefixed.Varint().reader())
+    fun requestIdentify(mplex: Mplex): Tuple2<
+            Mono<Data<IdentifyOuterClass.Identify>>,
+            Publisher<ByteBuffer>> {
+        val identify = IdentifyProtocol()
+
+        val stream = mplex.newStream(
+                Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))
+        )
+        val inbound: Publisher<ByteBuffer> = stream.inbound
+
+        val result  = Flux.from(inbound)
+                .transform(SizePrefixed.Varint().reader())
 //                        .transform(DebugCommons.traceByteBuf("ID PACKET"))
-                        .transform(multistream.readProtocol("/ipfs/id/1.0.0", false))
-                        .map {
-                            identify.parse(it)
-                        }
-                        .take(1).single()
-                        .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Identify")))
-                        .retry(3)
-                        .doOnError {
-                            if (it is DataTimeoutException) {
-                                log.debug("Timeout for ${it.name} from $remote")
-                            } else {
-                                log.warn("Identity not received", it)
-                            }
-                        }
-                        .onErrorResume { Mono.empty() }
-                        .map { Data(DataType.IDENTIFY, it) }
-                return result
-            }
-        })
+                .transform(multistream.readProtocol("/ipfs/id/1.0.0", false))
+                .map {
+                    identify.parse(it)
+                }
+                .take(1).single()
+                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Identify")))
+                .retry(3)
+                .doOnError {
+                    if (it is DataTimeoutException) {
+                        log.debug("Timeout for ${it.name} from $remote")
+                    } else if (it is IOException) {
+                        log.debug("Identify not received. ${it.message}")
+                    } else {
+                        log.warn("Identity not received", it)
+                    }
+                }
+                .onErrorResume { Mono.empty() }
+                .map { Data(DataType.IDENTIFY, it) }
+
+        return Tuples.of(result, stream.outbound())
     }
 
-    fun respondStandardRequests(mplex: Mplex): Mono<Void> {
-        return mplex.receiveStreams(object: Mplex.Handler<Mono<Void>> {
-            override fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: Mplex.MplexOutbound): Mono<Void> {
-                val repl = Flux.from(inboud)
+    fun respondStandardRequests(mplex: Mplex): Flux<ByteBuffer> {
+        return mplex.receiveStreams(object: Mplex.Handler<Flux<ByteBuffer>> {
+            override fun handle(stream: Mplex.MplexStream): Flux<ByteBuffer> {
+                val repl = Flux.from(stream.inbound)
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
                                 val msg = signal.get()!!
                                 if (ByteBufferCommons.contains(msg, "/ipfs/ping/1.0.0".toByteArray())) {
                                     val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
                                     val response = flux.skip(1).take(1).single()
-                                    return@switchOnFirst Flux.concat(start, response).doFinally { outboud.close() }
+                                    return@switchOnFirst Flux.concat(start, response)
                                 } else if (ByteBufferCommons.contains(msg,"/ipfs/id/1.0.0".toByteArray())) {
                                     val value = ByteBuffer.wrap(agent.toByteArray())
-                                    return@switchOnFirst Flux.just(value).doFinally { outboud.close() }
+                                    return@switchOnFirst Flux.just(value)
                                 } else {
                                     log.debug("Request to an unsupported protocol")
                                 }
                             }
                             Flux.empty<ByteBuffer>()
                         }
-                return outboud.send(repl)
+                return stream.send(repl).outbound()
             }
-        }).flatMap { it }.then()
+        }).flatMap { it }
     }
 
     fun handle(inbound: NettyInbound, outbound: NettyOutbound): Publisher<Void> {
@@ -230,57 +251,46 @@ class CrawlerClient(
                 .skipUntil { secio.isEstablished() }
                 .transform(SizePrefixed.Standard().reader())
                 .transform(secio.frameDecoder())
-                .doOnError { t -> log.warn("Failed to decrypt channel", t) }
                 .share()
 
         val receiveSecioNonce = secio.readNonce(Flux.from(decrypted))
 
-        val processors: Publisher<Data<*>> = Flux.merge(
-                Flux.from(requestIdentify(mplex)).subscribeOn(Schedulers.elastic()),
-                Flux.from(requestDht(mplex)).subscribeOn(Schedulers.elastic())
-        )
 
-        var mplexStarted = false
-
-        val listenMplex = Flux.from(decrypted)
+        val mplexInbound = Flux.from(decrypted)
                 .skip(1) //nonce
                 .transform(multistream.readProtocol("/mplex/6.7.0"))
-                .doOnEach {
-                    if (it.hasValue()) {
-                        if (!mplexStarted) {
-                            log.debug("Mplex established")
-                            processors.subscribe(results)
-                            mplexStarted = true
-                        }
-                    }
-                }
-                .map(mplex::onNext)
-                .doOnError { log.warn("Failed to process Mplex message", it) }
-
-        val mplexOutbound = Flux.just(mplex)
-                .flatMap { it.start() }
-                .map(secio.encoder())
+        val mplexStarter = Flux.from(mplex.start(mplexInbound))
                 .doOnError { log.error("Failed to start Mplex", it) }
-
-
         val mplexResponse = respondStandardRequests(mplex)
 
+        val identify = requestIdentify(mplex)
+        val dht = requestDht(mplex)
+
+        val processorsData: Publisher<Data<*>> = Flux.merge(
+                Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
+                Flux.from(dht.t1).subscribeOn(Schedulers.elastic())
+        )
+        val processorsOutbound = Flux.merge(
+                identify.t2, dht.t2
+        )
+        processorsData.subscribe(results)
 
         val main: Publisher<Void> = outbound.send(
                 Flux.concat(
                         proposeSecio,
                         establishSecio,
-                        receiveSecioNonce.thenMany(mplexOutbound)
+                        receiveSecioNonce.thenMany(mplexStarter)
+                                .map(secio.encoder()),
+                        Flux.merge(
+                                processorsOutbound,
+                                mplexResponse
+                        ).map(secio.encoder())
                 ).map {
                     Unpooled.wrappedBuffer(it)
                 }
         )
 
-        return Flux.merge(
-                Flux.from(main).subscribeOn(Schedulers.elastic()),
-                Flux.from(listenMplex.then()).subscribeOn(Schedulers.elastic()),
-                Flux.from(mplexResponse).subscribeOn(Schedulers.elastic())
-        )
+        return main
     }
 
 

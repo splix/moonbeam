@@ -1,13 +1,13 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import reactor.extra.processor.TopicProcessor
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -21,24 +21,32 @@ class Mplex: AutoCloseable {
     }
 
     private val multistream = Multistream()
-    private val seq = AtomicLong(1000);
-    private val messages = TopicProcessor.builder<Message>()
-            .name("mplex-in")
-            .build()
-    private val outbound = TopicProcessor.builder<ByteBuffer>()
-            .name("mplex-out")
-            .share(true)
-            .build()
+    private val seq = AtomicLong(1000)
+    private lateinit var input: Flux<Message>
 
-    fun start(): Publisher<ByteBuffer> {
+    fun start(input: Flux<ByteBuffer>): Publisher<ByteBuffer> {
+        this.input = input.flatMap {
+                    Flux.fromIterable(parse(it))
+                }
+                .doOnNext { msg ->
+//                val ascii = msg.content().toString(Charset.defaultCharset())
+//                        .replace(Regex("[^\\w/\\\\.-]"), ".")
+//                        .toCharArray().joinToString(" ")
+//                val hex = DebugCommons.toHex(msg.content())
+//                DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false)
+//                log.debug("mplex message $i ${msg.header.flag} ${msg.header.id}")
+//                log.debug("      $hex")
+//                log.debug("      $ascii")
+                }
+                .share()
+
         val starter = multistream.headerFor("/mplex/6.7.0")
-        return Flux.concat(Mono.just(starter), outbound)
+        return Mono.just(starter)
     }
 
     override fun close() {
         log.debug("Close Mplex connection")
-        messages.onComplete()
-        outbound.onComplete()
+        //TODO
     }
 
     fun parse(msg: ByteBuffer): List<Message> {
@@ -48,25 +56,6 @@ class Mplex: AutoCloseable {
             result.add(parsed)
         }
         return result
-    }
-
-    fun onNext(input: ByteBuffer) {
-        try {
-            parse(input).forEachIndexed { i, msg ->
-//                val ascii = msg.content().toString(Charset.defaultCharset())
-//                        .replace(Regex("[^\\w/\\\\.-]"), ".")
-//                        .toCharArray().joinToString(" ")
-//                val hex = DebugCommons.toHex(msg.content())
-//                DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false)
-//                log.debug("mplex message $i ${msg.header.flag} ${msg.header.id}")
-//                log.debug("      $hex")
-//                log.debug("      $ascii")
-
-                messages.onNext(msg)
-            }
-        } catch (e: java.lang.IllegalArgumentException) {
-            log.warn("Invalid Mplex data")
-        }
     }
 
     private fun getMessages(source: Flux<Message>, id: Long, flag: Flag): Flux<ByteBuffer> {
@@ -79,16 +68,17 @@ class Mplex: AutoCloseable {
                 }
     }
 
-    fun <T> newStream(handler: Handler<T>): T {
+    fun newStream(start: Publisher<ByteBuffer>): MplexStream {
         val id = seq.incrementAndGet()
-        val stream: Publisher<ByteBuffer> = getMessages(Flux.from(messages), id, Flag.MessageReceiver)
+        val stream: Publisher<ByteBuffer> = getMessages(Flux.from(input), id, Flag.MessageReceiver)
         val msg = Message(Header(Flag.NewStream, id), ByteBuffer.wrap("stream $id".toByteArray()))
-        outbound.onNext(msg.encode())
-        return handler.handle(id, stream, MplexOutbound(id, true, outbound))
+        return MplexStream(id, true, stream)
+                .sendMessage(Mono.just(msg))
+                .send(start)
     }
 
     fun <T> receiveStreams(handler: Handler<T>): Flux<T> {
-        val f = Flux.from(messages)
+        val f = Flux.from(input)
                 .subscribeOn(Schedulers.fromExecutor(EXECUTOR_SUBSCRIPTION))
                 .share().cache(1)
         val result = Flux.from(f)
@@ -97,18 +87,9 @@ class Mplex: AutoCloseable {
                 }
                 .map { init ->
                     val id = init.header.id
-                    val stream: Publisher<ByteBuffer> = getMessages(f, id, Flag.MessageInitiator)
-                    val outbound = MplexOutbound(id, false, outbound)
-                    Flux.from(f)
-                            .filter {
-                                it.header.id == id && it.header.flag == Flag.CloseInitiator
-                            }
-                            .single()
-                            .subscribe {
-                                log.debug("Close stream $id")
-                                outbound.close()
-                            }
-                    return@map handler.handle(id, stream, outbound)
+                    val inbound: Publisher<ByteBuffer> = getMessages(f, id, Flag.MessageInitiator)
+                    val stream = MplexStream(id, false, inbound)
+                    return@map handler.handle(stream)
                 }
         return result
     }
@@ -164,44 +145,71 @@ class Mplex: AutoCloseable {
             fun byId(id: Int): Flag {
                 return Flag.values().find { it.id == id } ?: throw IllegalArgumentException("Invalid flag id: $id")
             }
+
+            fun message(initiator: Boolean): Flag {
+                return if (initiator) {
+                    Flag.MessageInitiator
+                } else {
+                    Flag.MessageReceiver
+                }
+            }
+
+            fun close(initiator: Boolean): Flag {
+                return if (initiator) {
+                    Flag.CloseInitiator
+                } else {
+                    Flag.CloseReceiver
+                }
+            }
+
+            fun reset(initiator: Boolean): Flag {
+                return if (initiator) {
+                    Flag.ResetInitiator
+                } else {
+                    Flag.ResetReceiver
+                }
+            }
         }
     }
 
-    class MplexOutbound(val streamId: Long, val initiator: Boolean, private val outbound: TopicProcessor<ByteBuffer>): AutoCloseable {
-
-        private val flag = if (initiator) {
-            Flag.MessageInitiator
-        } else {
-            Flag.MessageReceiver
-        }
-
-        private val closeFlag = if (initiator) {
-            Flag.CloseInitiator
-        } else {
-            Flag.CloseReceiver
-        }
-
-        fun send(value: Publisher<ByteBuffer>): Mono<Void> {
-            return Flux.from(value)
-                    .map {
-                        val msg = Message(Header(flag, streamId), it)
-                        msg.encode()
-                    }
-//                    .transform(DebugCommons.traceByteBuf("MPLEX ${flag} ${streamId}", true))
-                    .doOnNext {
-                        outbound.onNext(it)
-                    }
-                    .then()
-        }
-
-        override fun close() {
-            log.debug("Close stream $streamId")
-            val msg = Message(Header(closeFlag, streamId), ByteBuffer.allocate(0)).encode()
-            outbound.onNext(msg)
-        }
-    }
 
     interface Handler<T> {
-        fun handle(id: Long, inboud: Publisher<ByteBuffer>, outboud: MplexOutbound): T
+        fun handle(stream: MplexStream): T
+    }
+
+    class MplexStream(private val streamId: Long, private val initiator: Boolean,
+                      val inbound: Publisher<ByteBuffer>) {
+
+        private var closed = false
+        private val oubound = ArrayList<Publisher<Message>>()
+
+        fun sendMessage(values: Publisher<Message>): MplexStream {
+            oubound.add(values)
+            return this
+        }
+
+        fun send(values: Publisher<ByteBuffer>): MplexStream {
+            oubound.add(Flux.from(values).map {
+                Message(Header(Flag.message(initiator), streamId), it)
+            })
+            return this
+        }
+
+        fun outbound(): Flux<ByteBuffer> {
+            if (closed) {
+                throw IllegalStateException("Mplex outbound is already closed")
+            }
+            val messages = Flux.concat(oubound)
+            val close = Mono.just(Message(Header(Flag.close(initiator), streamId), ByteBuffer.allocate(0)))
+            closed = true
+            return Flux.concat(messages, close)
+//                    .doOnNext { msg -> DebugCommons.trace("MPLEX ${msg.header.flag} ${streamId}", msg.data, true) }
+                    .map { it.encode() }
+        }
+
+        fun close(): MplexStream {
+            closed = true
+            return this
+        }
     }
 }

@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import spipe.pb.Spipe
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 
@@ -108,7 +109,13 @@ class Secio(
                     it.size == 2
                 }
                 .map { readSecioPropose(it.get(0), it.get(1)); true }
-                .doOnError { log.error("Failed to setup Secio connection", it) }
+                .doOnError {
+                    if (it is IOException) {
+                        log.debug("Failed to setup Secio connection, ${it.message}")
+                    } else {
+                        log.error("Failed to setup Secio connection", it)
+                    }
+                }
                 .thenMany(Flux.concat(replyExchange(), replyNonce()))
     }
 
