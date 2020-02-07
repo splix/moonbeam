@@ -31,6 +31,7 @@ import java.nio.ByteBuffer
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicReference
 
 class CrawlerClient(
         private val remote: Multiaddr,
@@ -44,10 +45,6 @@ class CrawlerClient(
 
     private val multistream = Multistream()
 
-    private val results = TopicProcessor.builder<Data<*>>()
-            .share(true)
-            .name("connect")
-            .build()
     private var connection: Connection? = null
 
 
@@ -63,7 +60,6 @@ class CrawlerClient(
 
     fun disconnect() {
         log.debug("Disconnecting from $remote")
-        results.onComplete()
         connection?.dispose()
     }
 
@@ -73,15 +69,21 @@ class CrawlerClient(
         val port = remote.getStringComponent(Protocol.TCP)!!.toInt()
 
         try {
+            val results = CompletableFuture<Flux<Data<*>>>()
             val client = TcpClient.create()
                     .host(host)
                     .port(port)
                     .handle { inbound, outbound ->
-                        Flux.from(handle(inbound, outbound)).onErrorResume { t ->
+                        val x = handle(inbound, outbound)
+                        results.complete(Flux.from(x.t2))
+                        Flux.from(x.t1).onErrorResume { t ->
                             if (t is IOException) {
                                 log.debug("Failed to connect to $remote")
                             } else {
                                 log.warn("Handler failed to start", t)
+                            }
+                            if (!results.isDone) {
+                                results.completeExceptionally(t)
                             }
                             Flux.empty()
                         }
@@ -94,13 +96,14 @@ class CrawlerClient(
                         }
                     }
 
-            return client.thenMany(
-                    Flux.from(results)
-                        .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
-                        .doFinally {
-                            connection?.dispose()
-                        }
-            )
+            val data = Mono.fromCompletionStage(results)
+                    .flatMapMany { it }
+                    .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
+                    .doFinally {
+                        connection?.dispose()
+                    }
+
+            return client.thenMany(data)
         } catch (e: ConnectTimeoutException) {
             log.debug("Timeout to connect to $remote")
         } catch (e: IllegalStateException) {
@@ -222,7 +225,7 @@ class CrawlerClient(
         }).flatMap { it }
     }
 
-    fun handle(inbound: NettyInbound, outbound: NettyOutbound): Publisher<Void> {
+    fun handle(inbound: NettyInbound, outbound: NettyOutbound): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
 //        outbound.withConnection { conn ->
 //            conn.addHandler(LoggingHandler("io.netty.util.internal.logging.Slf4JLogger", LogLevel.INFO))
 //        }
@@ -273,7 +276,6 @@ class CrawlerClient(
         val processorsOutbound = Flux.merge(
                 identify.t2, dht.t2
         )
-        processorsData.subscribe(results)
 
         val main: Publisher<Void> = outbound.send(
                 Flux.concat(
@@ -290,7 +292,7 @@ class CrawlerClient(
                 }
         )
 
-        return main
+        return Tuples.of(main, processorsData)
     }
 
 
