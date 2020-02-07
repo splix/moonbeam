@@ -9,7 +9,7 @@ import reactor.core.publisher.Flux
 import java.nio.ByteBuffer
 
 
-class DhtProtocol(val address: Multiaddr) {
+class DhtProtocol() {
 
     companion object {
         private val log = LoggerFactory.getLogger(DhtProtocol::class.java)

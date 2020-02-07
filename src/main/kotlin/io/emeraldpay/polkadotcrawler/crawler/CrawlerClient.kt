@@ -120,7 +120,7 @@ class CrawlerClient(
     fun requestDht(mplex: Mplex): Tuple2<
             Flux<Data<Dht.Message>>,
             Publisher<ByteBuffer>> {
-        val dht = DhtProtocol(remote)
+        val dht = DhtProtocol()
         val stream = mplex.newStream(
                 Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))
         )
