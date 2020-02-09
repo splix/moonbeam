@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler
 
 import io.emeraldpay.polkadotcrawler.discover.Bootnodes
+import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
 import org.slf4j.LoggerFactory
 import org.springframework.boot.SpringApplication
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -20,6 +21,7 @@ fun main(args: Array<String>) {
 
     ctx.getBean(Crawler::class.java).run()
     ctx.getBean(Bootnodes::class.java).run()
+    ctx.getBean(Monitoring::class.java).run()
 
     Hooks.onErrorDropped { t ->
         if (t is CancellationException) {

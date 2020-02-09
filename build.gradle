@@ -66,6 +66,10 @@ dependencies {
     compile 'org.apache.commons:commons-collections4:4.3'
     compile 'javax.annotation:javax.annotation-api:1.3.2'
     compile 'org.bouncycastle:bcprov-jdk15on:1.61'
+    compile "com.fasterxml.jackson.core:jackson-core:$jacksonVersion"
+    compile "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
+    compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:$jacksonVersion"
+    compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion"
 
     compile "org.slf4j:slf4j-api:$slf4jVersion"
     compile "org.apache.logging.log4j:log4j-slf4j-impl:2.11.1"
@@ -109,12 +113,15 @@ afterEvaluate {
 
 jib {
     from {
-        image = 'openjdk:alpine'
+        // can also be openjdk:13-alpine, but bouncycastle may be not fully compatible with Java 13 yet; there is no 11-alpine
+        image = 'openjdk:11-jdk-slim'
     }
     to {
         image = 'emeraldpay/polkadot-crawler'
         tags = ['alpha']
     }
     container {
+        volumes = ["/results"]
+        args = ["--export.file.targetdir=/results"]
     }
 }

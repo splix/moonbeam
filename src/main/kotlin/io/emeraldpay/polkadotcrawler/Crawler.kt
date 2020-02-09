@@ -6,6 +6,8 @@ import io.emeraldpay.polkadotcrawler.crawler.CrawlerClient
 import io.emeraldpay.polkadotcrawler.discover.Discovered
 import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
+import io.emeraldpay.polkadotcrawler.export.FileJsonExport
+import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
 import io.libp2p.core.PeerId
@@ -23,7 +25,9 @@ import java.time.Duration
 @Service
 class Crawler(
         @Autowired private val discovered: Discovered,
-        @Autowired private val noRecentChecks: NoRecentChecks
+        @Autowired private val noRecentChecks: NoRecentChecks,
+        @Autowired private val fileJsonExport: FileJsonExport,
+        @Autowired private val monitoring: Monitoring
 ): Runnable {
 
     companion object {
@@ -69,9 +73,8 @@ class Crawler(
                         Mono.empty()
                     }.subscribeOn(Schedulers.elastic())
                 }, 32)
-                .subscribe {
-                    it.dump()
-                }
+                .doOnNext { monitoring.onPeerProcessed(it) }
+                .subscribe(fileJsonExport)
     }
 
     fun connect(address: Multiaddr): Mono<PeerDetails> {

@@ -17,7 +17,7 @@ class PeerDetails(
         private val log = LoggerFactory.getLogger(PeerDetails::class.java)
     }
 
-    private var agent: String? = null
+    var agent: String? = null
     var peers: Int = 0
         private set
 
