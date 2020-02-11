@@ -8,6 +8,7 @@ import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.export.FileJsonExport
 import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
+import io.emeraldpay.polkadotcrawler.processing.FullProcessor
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
 import io.libp2p.core.PeerId
@@ -27,7 +28,8 @@ class Crawler(
         @Autowired private val discovered: Discovered,
         @Autowired private val noRecentChecks: NoRecentChecks,
         @Autowired private val fileJsonExport: FileJsonExport,
-        @Autowired private val monitoring: Monitoring
+        @Autowired private val monitoring: Monitoring,
+        @Autowired private val processor: FullProcessor
 ): Runnable {
 
     companion object {
@@ -74,6 +76,7 @@ class Crawler(
                     }.subscribeOn(Schedulers.elastic())
                 }, 32)
                 .doOnNext { monitoring.onPeerProcessed(it) }
+                .map(processor)
                 .subscribe(fileJsonExport)
     }
 

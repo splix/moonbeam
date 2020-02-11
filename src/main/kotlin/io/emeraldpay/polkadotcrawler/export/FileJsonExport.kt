@@ -3,6 +3,7 @@ package io.emeraldpay.polkadotcrawler.export
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.emeraldpay.polkadotcrawler.export.json.PeerDetailsJson
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
+import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
 import org.reactivestreams.Subscriber
 import org.reactivestreams.Subscription
 import org.slf4j.LoggerFactory
@@ -24,7 +25,7 @@ import java.util.*
 class FileJsonExport(
         @Value("\${export.file.targetdir:./log}") private val dir: File,
         @Autowired private val objectMapper: ObjectMapper
-): Subscriber<PeerDetails> {
+): Subscriber<ProcessedPeerDetails> {
 
     companion object {
         private val log = LoggerFactory.getLogger(FileJsonExport::class.java)
@@ -74,7 +75,7 @@ class FileJsonExport(
         s.request(Long.MAX_VALUE)
     }
 
-    override fun onNext(t: PeerDetails) {
+    override fun onNext(t: ProcessedPeerDetails) {
         out?.let { w ->
             val json = PeerDetailsJson.from(t)
             val line = objectMapper.writeValueAsBytes(json)
