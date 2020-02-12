@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.libp2p
 
 import io.emeraldpay.polkadotcrawler.DebugCommons
+import io.libp2p.core.PeerId
 import io.libp2p.core.crypto.PrivKey
 import io.libp2p.core.crypto.PubKey
 import io.libp2p.core.crypto.sha256
@@ -44,6 +45,7 @@ class Secio(
     }
 
     private lateinit var proposeMsg: Spipe.Propose
+    // proposed by a remote, the bot doesn't verify that it equal to a pubkey provided with address
     private lateinit var remotePubKey: PubKey
     private var order: Int? = null
     private lateinit var curve: String
@@ -68,6 +70,11 @@ class Secio(
     val nonce = ByteArray(nonceSize).apply { random.nextBytes(this) }
 
     private val multistream: Multistream = Multistream()
+
+    fun getPeerId(): PeerId {
+        // actual peerid, it could be different from id provided with the address
+        return PeerId.fromPubKey(remotePubKey)
+    }
 
     fun isEstablished(): Boolean {
         return established

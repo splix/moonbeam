@@ -8,6 +8,7 @@ open class ProcessedPeerDetails(
         val timestamp: Instant = Instant.now()
 ) {
 
+    var peerId: String? = null
     var agent: Agent? = null
     var host: Host? = null
 

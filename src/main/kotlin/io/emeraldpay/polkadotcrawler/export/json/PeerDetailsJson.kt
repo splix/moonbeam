@@ -19,12 +19,13 @@ class PeerDetailsJson(timestamp: Instant): ProcessedPeerDetails(timestamp) {
 
         fun from(peer: ProcessedPeerDetails): PeerDetailsJson {
             val result = PeerDetailsJson(peer.timestamp)
+            result.peerId = peer.peerId
             result.agent = peer.agent
             result.host = peer.host
             return result
         }
     }
 
-    val version: String = "https://schema.emeraldpay.io/polkadbot#v0"
+    val version: String = "https://schema.emeraldpay.io/polkabot#v0"
 
 }

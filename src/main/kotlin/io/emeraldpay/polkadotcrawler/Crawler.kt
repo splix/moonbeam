@@ -122,6 +122,10 @@ class Crawler(
                                 val id = it.cast(IdentifyOuterClass.Identify::class.java)
                                 details.add(id.data)
                             }
+
+                            CrawlerClient.DataType.PEER_ID -> {
+                                details.peerId = it.cast(PeerId::class.java).data
+                            }
                         }
 
                         details

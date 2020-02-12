@@ -4,6 +4,7 @@ import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.proto.Dht
+import io.libp2p.core.PeerId
 import io.libp2p.core.crypto.PrivKey
 import io.libp2p.core.crypto.PubKey
 import io.libp2p.core.multiformats.Multiaddr
@@ -268,10 +269,14 @@ class CrawlerClient(
 
         val identify = requestIdentify(mplex)
         val dht = requestDht(mplex)
+        val peerId = Flux.from(decrypted).next()
+                .then(Mono.just(secio).map(Secio::getPeerId))
+                .map { Data(DataType.PEER_ID, it) }
 
         val processorsData: Publisher<Data<*>> = Flux.merge(
                 Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
-                Flux.from(dht.t1).subscribeOn(Schedulers.elastic())
+                Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
+                Flux.from(peerId).subscribeOn(Schedulers.elastic())
         )
         val processorsOutbound = Flux.merge(
                 identify.t2, dht.t2
@@ -302,7 +307,8 @@ class CrawlerClient(
 
     enum class DataType(val clazz: Class<out Any>) {
         IDENTIFY(IdentifyOuterClass.Identify::class.java),
-        DHT_NODES(Dht.Message::class.java)
+        DHT_NODES(Dht.Message::class.java),
+        PEER_ID(PeerId::class.java)
     }
 
     class Data<T>(

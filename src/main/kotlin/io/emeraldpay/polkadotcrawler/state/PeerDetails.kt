@@ -2,6 +2,7 @@ package io.emeraldpay.polkadotcrawler.state
 
 import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.proto.Dht
+import io.libp2p.core.PeerId
 import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import org.apache.commons.lang3.StringUtils
@@ -20,6 +21,7 @@ class PeerDetails(
     var agent: String? = null
     var peers: Int = 0
         private set
+    var peerId: PeerId? = null
 
     private lateinit var host: InetAddress
     private var port: Int? = null
@@ -32,6 +34,10 @@ class PeerDetails(
         }
         if (address.has(Protocol.TCP)) {
             port = address.getStringComponent(Protocol.TCP)?.toIntOrNull()
+        }
+        // setup default PeerId, maybe replaced later after establishing Secio
+        address.getStringComponent(Protocol.P2P)?.let {
+            peerId = PeerId.fromBase58(it)
         }
     }
 
