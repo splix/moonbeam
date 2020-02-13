@@ -25,7 +25,7 @@ plugins {
 
 
 group = 'io.emeraldpay.polkadotcrawler'
-version = '0.1-SNAPSHOT'
+version = '0.2-SNAPSHOT'
 
 targetCompatibility = '1.8'
 sourceCompatibility = '1.8'
@@ -92,6 +92,19 @@ compileKotlin {
 compileTestKotlin {
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+}
+
+processResources {
+    // setup project version into default properties
+    from('src/main/resources') {
+        include "application.properties"
+        expand projectVersion: project.version
+    }
+
+    // copy all other properties, without trying to expand
+    from('src/main/resources') {
+        exclude "application.properties"
     }
 }
 

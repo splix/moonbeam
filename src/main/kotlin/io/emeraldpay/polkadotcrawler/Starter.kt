@@ -3,9 +3,11 @@ package io.emeraldpay.polkadotcrawler
 import io.emeraldpay.polkadotcrawler.discover.Bootnodes
 import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
 import org.slf4j.LoggerFactory
+import org.springframework.boot.ResourceBanner
 import org.springframework.boot.SpringApplication
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.context.annotation.Import
+import org.springframework.core.io.ClassPathResource
 import reactor.core.publisher.Hooks
 import java.util.concurrent.CancellationException
 
@@ -17,6 +19,7 @@ private val log = LoggerFactory.getLogger(Starter::class.java)
 
 fun main(args: Array<String>) {
     val app = SpringApplication(Starter::class.java)
+    app.setBanner(ResourceBanner(ClassPathResource("banner.txt")))
     val ctx = app.run(*args)
 
     ctx.getBean(Crawler::class.java).run()
