@@ -3,11 +3,14 @@ package io.emeraldpay.polkadotcrawler.libp2p
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import org.apache.commons.codec.binary.Hex
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
+import reactor.extra.processor.TopicProcessor
 import reactor.test.StepVerifier
 import spock.lang.Specification
 
 import java.nio.ByteBuffer
 import java.time.Duration
+import java.util.function.Function
 
 class MultistreamSpec extends Specification {
 
@@ -15,7 +18,7 @@ class MultistreamSpec extends Specification {
 
     def "Produces secio header"() {
         when:
-        def act = multistream.headerFor("/secio/1.0.0")
+        def act = multistream.multistreamHeader("/secio/1.0.0")
         DebugCommons.trace("test", act, false)
         then:
         Hex.encodeHexString(act.array()) == "13" + Hex.encodeHexString("/multistream/1.0.0\n".getBytes()) +
@@ -62,8 +65,6 @@ class MultistreamSpec extends Specification {
         def p2 = Hex.decodeHex("0d" + "2f736563696f2f312e302e300a")
         def p3 = Hex.decodeHex("00000001ff")
 
-        def multistream = new Multistream()
-
         def source = Flux.fromIterable([p1, p2, p3])
                 .map {
                     ByteBuffer.wrap(it)
@@ -84,4 +85,80 @@ class MultistreamSpec extends Specification {
                 .verify(Duration.ofSeconds(1))
     }
 
+    def "Extracts null protocol from not fully filled"() {
+        expect:
+        def act = multistream.splitProtocol(ByteBuffer.wrap(
+                Hex.decodeHex(inputs)
+        ))
+        act.isEmpty()
+        where:
+        inputs << [
+                "",
+                "13" + "2f6d756c7469737472", //cut of mulstistream
+        ]
+    }
+
+    def "Extracts protocol"() {
+        when:
+        def act = multistream.splitProtocol(ByteBuffer.wrap(
+                Hex.decodeHex("13" + "2f6d756c746973747265616d2f312e302e300a" +
+                        "0d" + "2f736563696f2f312e302e300a")
+        ))
+        then:
+        act == ["/multistream/1.0.0", "/secio/1.0.0"]
+    }
+
+    def "Extracts single protocol"() {
+        when:
+        def act = multistream.splitProtocol(ByteBuffer.wrap(
+                Hex.decodeHex("0d" + "2f736563696f2f312e302e300a")
+        ))
+        then:
+        act == ["/secio/1.0.0"]
+    }
+
+    def "Ignores tail when extracts protocol"() {
+        when:
+        def act = multistream.splitProtocol(ByteBuffer.wrap(
+                Hex.decodeHex("13" + "2f6d756c746973747265616d2f312e302e300a" +
+                        "0d" + "2f736563696f2f312e302e300a" + "ff1234")
+        ))
+        then:
+        act == ["/multistream/1.0.0", "/secio/1.0.0"]
+    }
+
+    def "Negotiate when first is not supported"() {
+        setup:
+        TopicProcessor<String> remote = TopicProcessor.create()
+        Flux<ByteBuffer> inbound = Flux.from(remote).map { ByteBuffer.wrap(Hex.decodeHex(it)) }
+        Function<Flux<ByteBuffer>, Flux<ByteBuffer>> handler = {
+            Mono.just(ByteBuffer.wrap(Hex.decodeHex("796573")))
+        }
+        when:
+        def act = multistream.negotiate(
+                inbound,
+                "/secio/1.0.0",
+                handler
+        ).map {
+            Hex.encodeHexString(it.array())
+        }
+
+        remote.onNext(
+                "13" + "2f6d756c746973747265616d2f312e302e300a" +
+                "0d" + "2f6e6f7365632f312e302e300a" //nosec/1.0.0
+        )
+        then:
+        StepVerifier.create(act)
+            .expectNext("132f6d756c746973747265616d2f312e302e300a").as("Handshake")
+            .expectNext("036e610a").as("Send NA")
+            .then {
+                remote.onNext(
+                        "0d" + "2f736563696f2f312e302e300a" // secio/1.0.0
+                )
+            }.as("Remote proposes Secio")
+            .expectNext("0d2f736563696f2f312e302e300a").as("Confirmation")
+            .expectNext("796573").as("The handler data")
+            .expectComplete()
+            .verify(Duration.ofSeconds(1))
+    }
 }
