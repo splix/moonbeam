@@ -226,4 +226,101 @@ class SizePrefixedSpec extends Specification{
         "0000f000"  | 61440
         "12345678"  | 305419896
     }
+
+    def "2 byte - read packet"() {
+        setup:
+        def converter = SizePrefixed.Twobytes()
+        def p1 = Hex.decodeHex(
+                "00aa" + "23ea79402c915aa1624e2f0fcccdfb29857581a971b060ee39137b7bd2e5862f09642df91e163bd10f8bd6ac8ccab7b57b3fa02d23709104dc1db91e509b1a2800680a24080112202a7f5034210041fbeaae933bbb992aac05ae3163c5f32867142729df9405c0bb1240cec8f7055a59f7a2238de5db4abfa8cf5d916cc58f28be70199bde9128a49777c6d8eb743157d14e180bb8ada3d213b762ee553da9dad72b67e1da5a1fc0a807"
+        )
+
+        when:
+        def act = Flux.just(p1)
+                .map { ByteBuffer.wrap(it) }
+                .transform(converter.reader())
+                .map { ByteBuffer buf ->
+                    return Hex.encodeHexString(buf.array())
+                }
+
+        then:
+        StepVerifier.create(act)
+                .expectNext("23ea79402c915aa1624e2f0fcccdfb29857581a971b060ee39137b7bd2e5862f09642df91e163bd10f8bd6ac8ccab7b57b3fa02d23709104dc1db91e509b1a2800680a24080112202a7f5034210041fbeaae933bbb992aac05ae3163c5f32867142729df9405c0bb1240cec8f7055a59f7a2238de5db4abfa8cf5d916cc58f28be70199bde9128a49777c6d8eb743157d14e180bb8ada3d213b762ee553da9dad72b67e1da5a1fc0a807")
+                .expectComplete()
+                .verify(Duration.ofSeconds(1))
+    }
+
+    def "2 byte - read 4 packets"() {
+        setup:
+        def converter = SizePrefixed.Twobytes()
+        def p1 = Hex.decodeHex(
+                "0030" + "bd093a4bdd1e6c55de61d6e26d7b2e5dfe67176f8a2d50d8c92fb3f30424ad910e6ad58c84bb4523ff3a519423cf1844"+
+                "003c" + "074adf05ee8fdd14ee1b86849ef7ddf4a3827c39795567c4e6b9e858a6a3fe5c138c79951ca7f61fe65b6edf0b8f63b455e82cecb79ef7f0a9136638"+
+                "001c" + "0034a30530296cd2d849a4d98f5621495b29c6ef479fda42b739271f" +
+                "0030" + "30d81f777b8fbb060dcba1180eda73675138ed982732b4b9ac53f56aa95fe5fa665493492a86a5e043b1ba2e1c105382"
+        )
+
+        when:
+        def act = Flux.just(p1)
+                .map { ByteBuffer.wrap(it) }
+                .transform(converter.reader())
+                .map { ByteBuffer buf ->
+                    return Hex.encodeHexString(buf.array())
+                }
+
+        then:
+        StepVerifier.create(act)
+                .expectNext("bd093a4bdd1e6c55de61d6e26d7b2e5dfe67176f8a2d50d8c92fb3f30424ad910e6ad58c84bb4523ff3a519423cf1844")
+                .expectNext("074adf05ee8fdd14ee1b86849ef7ddf4a3827c39795567c4e6b9e858a6a3fe5c138c79951ca7f61fe65b6edf0b8f63b455e82cecb79ef7f0a9136638")
+                .expectNext("0034a30530296cd2d849a4d98f5621495b29c6ef479fda42b739271f")
+                .expectNext("30d81f777b8fbb060dcba1180eda73675138ed982732b4b9ac53f56aa95fe5fa665493492a86a5e043b1ba2e1c105382")
+                .expectComplete()
+                .verify(Duration.ofSeconds(1))
+    }
+
+    def "2 byte - read value"() {
+        setup:
+        def prefix = SizePrefixed.Twobytes().prefix
+        expect:
+        prefix.read(ByteBuffer.wrap(Hex.decodeHex(hex))) == value
+        where:
+        hex         | value
+        "0000"  | 0
+        "0001"  | 1
+        "0024"  | 36
+        "0030"  | 48
+        "00ca"  | 202
+        "00f0"  | 240
+        "00ff"  | 255
+        "0100"  | 256
+        "1234"  | 4660
+        "4321"  | 17185
+        "f0f0"  | 61680
+        "f000"  | 61440
+        "f00f"  | 61455
+        "ffff"  | 65535
+    }
+
+
+    def "2 byte - write value"() {
+        setup:
+        def prefix = SizePrefixed.Twobytes().prefix
+        expect:
+        Hex.encodeHexString(prefix.write(value)) == hex
+        where:
+        hex         | value
+        "0000"  | 0
+        "0001"  | 1
+        "0024"  | 36
+        "0030"  | 48
+        "00ca"  | 202
+        "00f0"  | 240
+        "00ff"  | 255
+        "0100"  | 256
+        "1234"  | 4660
+        "4321"  | 17185
+        "f0f0"  | 61680
+        "f000"  | 61440
+        "f00f"  | 61455
+        "ffff"  | 65535
+    }
 }

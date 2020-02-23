@@ -5,7 +5,6 @@ import com.google.protobuf.CodedOutputStream
 import com.google.protobuf.InvalidProtocolBufferException
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
-import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -14,6 +13,7 @@ import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 import java.util.function.Function
 import java.util.function.Predicate
+import kotlin.experimental.and
 import kotlin.math.min
 
 class SizePrefixed {
@@ -23,12 +23,17 @@ class SizePrefixed {
 
         @JvmStatic
         fun Standard(): Converter {
-            return Converter(StandardSize())
+            return Converter(FourbyteSize())
         }
 
         @JvmStatic
         fun Varint(): Converter {
             return Converter(VarintSize())
+        }
+
+        @JvmStatic
+        fun Twobytes(): Converter {
+            return Converter(TwobyteSize())
         }
     }
 
@@ -135,7 +140,10 @@ class SizePrefixed {
         fun write(value: T): ByteBuffer
     }
 
-    class StandardSize(): SizePrefix<Int> {
+    /**
+     * Always uses 4 bytes to encode/decode length
+     */
+    class FourbyteSize(): SizePrefix<Int> {
         override fun read(input: ByteBuffer): Int {
             return input.getInt()
         }
@@ -146,6 +154,9 @@ class SizePrefixed {
 
     }
 
+    /**
+     * Uses Protobuf variable length uint32
+     */
     class VarintSize(): SizePrefix<Int> {
         override fun read(input: ByteBuffer): Int {
             val coded = CodedInputStream.newInstance(input)
@@ -163,6 +174,9 @@ class SizePrefixed {
         }
     }
 
+    /**
+     * Uses Protobuf variable length uint64
+     */
     class VarlongSize(): SizePrefix<Long> {
         override fun read(input: ByteBuffer): Long {
             val coded = CodedInputStream.newInstance(input)
@@ -178,5 +192,37 @@ class SizePrefixed {
             input.flush()
             return ByteBuffer.wrap(buf.toByteArray())
         }
+    }
+
+    /**
+     * Always uses 2 bytes to encode/decode length
+     */
+    class TwobyteSize(): SizePrefix<Int> {
+        private fun readByte(input: ByteBuffer): Int {
+            val x = input.get()
+            if (x < 0) {
+                return 256 + x.toInt()
+            }
+            return x.toInt()
+        }
+
+        override fun read(input: ByteBuffer): Int {
+            return readByte(input).shl(8) + readByte(input)
+        }
+
+        override fun write(value: Int): ByteBuffer {
+            if (value > 0xffff) {
+                throw IllegalArgumentException("Size must be less than 65535. Have: $value")
+            }
+            if (value < 0) {
+                throw IllegalArgumentException("Size must be positive. Have: $value")
+            }
+            val buf = ByteBuffer.allocate(2)
+            buf.put(value.shr( 8).and (0xff).toByte())
+            buf.put(value.and (0xff).toByte())
+            buf.flip()
+            return buf
+        }
+
     }
 }
