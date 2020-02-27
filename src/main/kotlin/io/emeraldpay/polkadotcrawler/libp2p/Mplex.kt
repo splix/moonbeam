@@ -40,7 +40,7 @@ class Mplex: AutoCloseable {
                 }
                 .share()
 
-        val starter = multistream.headerFor("/mplex/6.7.0")
+        val starter = multistream.multistreamHeader("/mplex/6.7.0")
         return Mono.just(starter)
     }
 

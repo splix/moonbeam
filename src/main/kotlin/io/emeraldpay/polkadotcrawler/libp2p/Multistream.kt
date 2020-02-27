@@ -77,6 +77,11 @@ class Multistream {
         }
     }
 
+    fun propose(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
+        val handshake = Mono.just(multistreamHeader(protocol))
+        return Flux.concat(handshake, negotiate(inbound, protocol, handler, true, true))
+    }
+
     /**
      * Negotiate multistream to the specified protocol
      *
@@ -86,10 +91,10 @@ class Multistream {
      * @return outbound data
      */
     fun negotiate(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
-        return negotiate(inbound, protocol, handler, false)
+        return negotiate(inbound, protocol, handler, false, false)
     }
 
-    private fun negotiate(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, initiated: Boolean): Flux<ByteBuffer> {
+    private fun negotiate(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, initiated: Boolean, proposed: Boolean): Flux<ByteBuffer> {
         var headerBuffer: ByteBuffer? = null
         var headerFound = false
         val allRead: Predicate<ByteBuffer> = Predicate { input ->
@@ -113,16 +118,21 @@ class Multistream {
                         val header = splitProtocol(headerBuffer!!)
                         if (header.isEmpty()) {
                             return@switchOnFirst Flux.error<ByteBuffer>(IllegalStateException("Empty header"))
-                        } else if (header.size > 2 || (header.size == 2 && initiated) || (header.size == 1 && !initiated)) {
+                        } else if (header.size > 2 ||
+                                (!proposed && (header.size == 2 && initiated) || (header.size == 1 && !initiated))) {
                             return@switchOnFirst Flux.error<ByteBuffer>(IllegalStateException("Invalid header"))
                         }
                         val currentProtocol = header.last()
                         if (currentProtocol == protocol) {
-                            val confirm = Mono.just(plainHeader(protocol))
+                            val confirm = if (proposed) {
+                                Mono.empty<ByteBuffer>()
+                            } else {
+                                Mono.just(plainHeader(protocol))
+                            }
                             val next = flux.skip(1).transform(handler)
                             Flux.concat(confirm, next)
                         } else {
-                            Flux.concat(Mono.just(ByteBuffer.wrap(NA)), negotiate(flux.skip(1), protocol, handler, true))
+                            Flux.concat(Mono.just(ByteBuffer.wrap(NA)), negotiate(flux.skip(1), protocol, handler, true, proposed))
                         }
                     } else {
                         Flux.empty<ByteBuffer>()

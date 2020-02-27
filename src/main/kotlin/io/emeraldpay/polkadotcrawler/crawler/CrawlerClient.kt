@@ -11,15 +11,11 @@ import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import io.netty.buffer.Unpooled
 import io.netty.channel.ConnectTimeoutException
-import io.netty.channel.unix.Errors
-import io.netty.handler.logging.LogLevel
-import io.netty.handler.logging.LoggingHandler
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import reactor.extra.processor.TopicProcessor
 import reactor.netty.Connection
 import reactor.netty.NettyInbound
 import reactor.netty.NettyOutbound
@@ -32,7 +28,7 @@ import java.nio.ByteBuffer
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.atomic.AtomicReference
+import java.util.function.Function
 
 class CrawlerClient(
         private val remote: Multiaddr,
@@ -123,7 +119,7 @@ class CrawlerClient(
             Publisher<ByteBuffer>> {
         val dht = DhtProtocol()
         val stream = mplex.newStream(
-                Mono.just(multistream.headerFor("/ipfs/kad/1.0.0"))
+                Mono.just(multistream.multistreamHeader("/ipfs/kad/1.0.0"))
         )
 
         val headerReceived = CompletableFuture<Boolean>()
@@ -172,7 +168,7 @@ class CrawlerClient(
         val identify = IdentifyProtocol()
 
         val stream = mplex.newStream(
-                Mono.just(multistream.headerFor("/ipfs/id/1.0.0"))
+                Mono.just(multistream.multistreamHeader("/ipfs/id/1.0.0"))
         )
         val inbound: Publisher<ByteBuffer> = stream.inbound
 
@@ -209,7 +205,7 @@ class CrawlerClient(
                             if (signal.hasValue()) {
                                 val msg = signal.get()!!
                                 if (ByteBufferCommons.contains(msg, "/ipfs/ping/1.0.0".toByteArray())) {
-                                    val start = Mono.just(multistream.headerFor("/ipfs/ping/1.0.0"))
+                                    val start = Mono.just(multistream.multistreamHeader("/ipfs/ping/1.0.0"))
                                     val response = flux.skip(1).take(1).single()
                                     return@switchOnFirst Flux.concat(start, response)
                                 } else if (ByteBufferCommons.contains(msg,"/ipfs/id/1.0.0".toByteArray())) {
@@ -226,78 +222,84 @@ class CrawlerClient(
         }).flatMap { it }
     }
 
+
     fun handle(inbound: NettyInbound, outbound: NettyOutbound): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
 //        outbound.withConnection { conn ->
 //            conn.addHandler(LoggingHandler("io.netty.util.internal.logging.Slf4JLogger", LogLevel.INFO))
 //        }
 
-        val secio = Secio(keys.first)
+        val secureTransport = NoiseTransport(keys.first, true)
         val mplex = Mplex()
 
-        val proposeSecio = Flux.concat(
-                Mono.just(multistream.headerFor("/secio/1.0.0")),
-                Mono.just(SizePrefixed.Standard().write(ByteBuffer.wrap(secio.propose().toByteArray())))
-        )
-
-        val receive = inbound.receive()
+        val inboundBytes = inbound.receive()
                 .map {
                     val copy = ByteBuffer.allocate(it.readableBytes())
                     it.readBytes(copy)
 //                    it.release()
                     copy.flip()
                 }
-                .share()
 
+        val processorsData = CompletableFuture<Publisher<Data<*>>>()
 
-        val establishSecio = secio.readSecio(receive)
+        val handleConnected = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { receiveSource ->
+            val receive = receiveSource.share()
 
-        val decrypted =  receive
-                .skipUntil { secio.isEstablished() }
-                .transform(SizePrefixed.Standard().reader())
-                .transform(secio.frameDecoder())
-                .share()
+            val proposeSecure = Flux.from(secureTransport.handshake())
+                    .transform(SizePrefixed.Twobytes().writer())
+            val establishSecure = Mono.from(secureTransport.establish(receive)).then()
 
-        val receiveSecioNonce = secio.readNonce(Flux.from(decrypted))
+            val decrypted =  receive
+                    .skipUntil { secureTransport.isEstablished() }
+                    .transform(SizePrefixed.Twobytes().reader())
+                    .transform(secureTransport.decoder())
+                    .onErrorContinue { t, o ->
+                        log.warn("Packet decryption failed", t)
+                    }
+//                    .transform(DebugCommons.traceByteBuf("decrypted", false))
+                    .share()
 
+            val mplexInbound = Flux.from(decrypted)
+                    .transform(multistream.readProtocol("/mplex/6.7.0"))
+            val mplexStarter = Flux.from(mplex.start(mplexInbound))
+                    .doOnError { log.error("Failed to start Mplex", it) }
+            val mplexResponse = respondStandardRequests(mplex)
 
-        val mplexInbound = Flux.from(decrypted)
-                .skip(1) //nonce
-                .transform(multistream.readProtocol("/mplex/6.7.0"))
-        val mplexStarter = Flux.from(mplex.start(mplexInbound))
-                .doOnError { log.error("Failed to start Mplex", it) }
-        val mplexResponse = respondStandardRequests(mplex)
+            val identify = requestIdentify(mplex)
+            val dht = requestDht(mplex)
+            val peerId = secureTransport.getPeerId()
+                    .map { Data(DataType.PEER_ID, it) }
 
-        val identify = requestIdentify(mplex)
-        val dht = requestDht(mplex)
-        val peerId = Flux.from(decrypted).next()
-                .then(Mono.just(secio).map(Secio::getPeerId))
-                .map { Data(DataType.PEER_ID, it) }
+            processorsData.complete(
+                    Flux.merge(
+                        Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
+                        Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
+                        Flux.from(peerId).subscribeOn(Schedulers.elastic())
+                    )
+            )
+            val processorsOutbound = Flux.merge(
+                    identify.t2, dht.t2
+            )
 
-        val processorsData: Publisher<Data<*>> = Flux.merge(
-                Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
-                Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
-                Flux.from(peerId).subscribeOn(Schedulers.elastic())
-        )
-        val processorsOutbound = Flux.merge(
-                identify.t2, dht.t2
-        )
+            Flux.concat(
+                    proposeSecure,
+                    establishSecure
+                            .thenMany(
+                                    Flux.concat(
+                                            mplexStarter,
+                                            Flux.merge(mplexResponse, processorsOutbound)
+                                    )
+                            )
+//                            .transform(DebugCommons.traceByteBuf("encrypt", true))
+                            .transform(secureTransport.encoder())
+                            .transform(SizePrefixed.Twobytes().writer())
+            )
+        }
 
-        val main: Publisher<Void> = outbound.send(
-                Flux.concat(
-                        proposeSecio,
-                        establishSecio,
-                        receiveSecioNonce.thenMany(mplexStarter)
-                                .map(secio.encoder()),
-                        Flux.merge(
-                                processorsOutbound,
-                                mplexResponse
-                        ).map(secio.encoder())
-                ).map {
-                    Unpooled.wrappedBuffer(it)
-                }
-        )
+        val connection = multistream.propose(inboundBytes, "/noise/ix/25519/chachapoly/sha256/0.1.0", handleConnected)
 
-        return Tuples.of(main, processorsData)
+        val main: Publisher<Void> = outbound.send(connection.map { Unpooled.wrappedBuffer(it) })
+
+        return Tuples.of(main, Mono.fromCompletionStage(processorsData).flatMapMany { it })
     }
 
 

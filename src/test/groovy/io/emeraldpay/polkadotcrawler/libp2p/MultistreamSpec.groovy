@@ -161,4 +161,34 @@ class MultistreamSpec extends Specification {
             .expectComplete()
             .verify(Duration.ofSeconds(1))
     }
+
+    def "Propose - accepted"() {
+        setup:
+        TopicProcessor<String> remote = TopicProcessor.create()
+        Flux<ByteBuffer> inbound = Flux.from(remote).map { ByteBuffer.wrap(Hex.decodeHex(it)) }
+        Function<Flux<ByteBuffer>, Flux<ByteBuffer>> handler = {
+            Mono.just(ByteBuffer.wrap(Hex.decodeHex("796573")))
+        }
+        when:
+        def act = multistream.propose(
+                inbound,
+                "/secio/1.0.0",
+                handler
+        ).map {
+            Hex.encodeHexString(it.array())
+        }
+
+        then:
+        StepVerifier.create(act)
+                .expectNext("132f6d756c746973747265616d2f312e302e300a" + "0d2f736563696f2f312e302e300a").as("Proposal")
+                .then {
+                    remote.onNext(
+                            "13" + "2f6d756c746973747265616d2f312e302e300a" + // mulstistream/1.0.0
+                            "0d" + "2f736563696f2f312e302e300a" // secio/1.0.0
+                    )
+                }.as("Remote proposes Secio too")
+                .expectNext("796573").as("The handler data")
+                .expectComplete()
+                .verify(Duration.ofSeconds(1))
+    }
 }
