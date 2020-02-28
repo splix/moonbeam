@@ -9,6 +9,7 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import java.nio.ByteBuffer
+import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -20,28 +21,15 @@ class Mplex: AutoCloseable {
         private val VARINT_CONVERTER = SizePrefixed.VarintSize()
     }
 
-    private val multistream = Multistream()
     private val seq = AtomicLong(1000)
     private lateinit var input: Flux<Message>
 
-    fun start(input: Flux<ByteBuffer>): Publisher<ByteBuffer> {
-        this.input = input.flatMap {
+    fun start(input: Flux<ByteBuffer>) {
+        this.input = input
+                .flatMap {
                     Flux.fromIterable(parse(it))
                 }
-                .doOnNext { msg ->
-//                val ascii = msg.content().toString(Charset.defaultCharset())
-//                        .replace(Regex("[^\\w/\\\\.-]"), ".")
-//                        .toCharArray().joinToString(" ")
-//                val hex = DebugCommons.toHex(msg.content())
-//                DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false)
-//                log.debug("mplex message $i ${msg.header.flag} ${msg.header.id}")
-//                log.debug("      $hex")
-//                log.debug("      $ascii")
-                }
-                .share()
-
-        val starter = multistream.multistreamHeader("/mplex/6.7.0")
-        return Mono.just(starter)
+                .publish().refCount(1, Duration.ofMillis(100))
     }
 
     override fun close() {
@@ -70,7 +58,7 @@ class Mplex: AutoCloseable {
 
     fun newStream(start: Publisher<ByteBuffer>): MplexStream {
         val id = seq.incrementAndGet()
-        val stream: Publisher<ByteBuffer> = getMessages(Flux.from(input), id, Flag.MessageReceiver)
+        val stream: Publisher<ByteBuffer> = getMessages(input, id, Flag.MessageReceiver)
         val msg = Message(Header(Flag.NewStream, id), ByteBuffer.wrap("stream $id".toByteArray()))
         return MplexStream(id, true, stream)
                 .sendMessage(Mono.just(msg))

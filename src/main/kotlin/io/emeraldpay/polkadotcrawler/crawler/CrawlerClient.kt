@@ -2,6 +2,7 @@ package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
+import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.PeerId
@@ -225,11 +226,13 @@ class CrawlerClient(
 
     fun handle(inbound: NettyInbound, outbound: NettyOutbound): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
 //        outbound.withConnection { conn ->
-//            conn.addHandler(LoggingHandler("io.netty.util.internal.logging.Slf4JLogger", LogLevel.INFO))
+//            conn.addHandler(
+//                    io.netty.handler.logging.LoggingHandler("io.netty.util.internal.logging.Slf4JLogger",
+//                    io.netty.handler.logging.LogLevel.INFO)
+//            )
 //        }
 
         val secureTransport = NoiseTransport(keys.first, true)
-        val mplex = Mplex()
 
         val inboundBytes = inbound.receive()
                 .map {
@@ -240,6 +243,30 @@ class CrawlerClient(
                 }
 
         val processorsData = CompletableFuture<Publisher<Data<*>>>()
+
+        val handleMplex = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { mplexInbound ->
+            val mplex = Mplex()
+            mplex.start(mplexInbound)
+            val standardResponses = respondStandardRequests(mplex)
+
+            val identify = requestIdentify(mplex)
+            val dht = requestDht(mplex)
+            val peerId = secureTransport.getPeerId()
+                    .map { Data(DataType.PEER_ID, it) }
+
+            processorsData.complete(
+                    Flux.merge(
+                            Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
+                            Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
+                            Flux.from(peerId).subscribeOn(Schedulers.elastic())
+                    )
+            )
+            val queryOutbound = Flux.merge(
+                    identify.t2, dht.t2
+            )
+
+            Flux.merge(standardResponses, queryOutbound)
+        }
 
         val handleConnected = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { receiveSource ->
             val receive = receiveSource.share()
@@ -256,39 +283,13 @@ class CrawlerClient(
                         log.warn("Packet decryption failed", t)
                     }
 //                    .transform(DebugCommons.traceByteBuf("decrypted", false))
-                    .share()
 
-            val mplexInbound = Flux.from(decrypted)
-                    .transform(multistream.readProtocol("/mplex/6.7.0"))
-            val mplexStarter = Flux.from(mplex.start(mplexInbound))
-                    .doOnError { log.error("Failed to start Mplex", it) }
-            val mplexResponse = respondStandardRequests(mplex)
-
-            val identify = requestIdentify(mplex)
-            val dht = requestDht(mplex)
-            val peerId = secureTransport.getPeerId()
-                    .map { Data(DataType.PEER_ID, it) }
-
-            processorsData.complete(
-                    Flux.merge(
-                        Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
-                        Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
-                        Flux.from(peerId).subscribeOn(Schedulers.elastic())
-                    )
-            )
-            val processorsOutbound = Flux.merge(
-                    identify.t2, dht.t2
-            )
+            val mplex = multistream.propose(decrypted, "/mplex/6.7.0", handleMplex)
 
             Flux.concat(
                     proposeSecure,
                     establishSecure
-                            .thenMany(
-                                    Flux.concat(
-                                            mplexStarter,
-                                            Flux.merge(mplexResponse, processorsOutbound)
-                                    )
-                            )
+                            .thenMany(mplex)
 //                            .transform(DebugCommons.traceByteBuf("encrypt", true))
                             .transform(secureTransport.encoder())
                             .transform(SizePrefixed.Twobytes().writer())

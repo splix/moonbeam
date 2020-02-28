@@ -108,7 +108,10 @@ class Multistream {
                         ByteBufferCommons.join(headerBuffer!!, input)
                     }
                 }
-                headerFound = splitProtocol(headerBuffer!!).isNotEmpty()
+                //when we negotiate as recipient we can have 1 header on the seconds step,
+                //but for proposal we expect 2 headers as acceptance
+                val headers = splitProtocol(headerBuffer!!)
+                headerFound = headers.isNotEmpty() && (!proposed || headers.size == 2)
                 headerFound
             }
         }
