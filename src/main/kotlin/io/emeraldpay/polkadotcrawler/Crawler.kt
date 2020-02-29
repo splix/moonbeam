@@ -105,9 +105,7 @@ class Crawler(
                 .subscribeOn(Schedulers.newSingle("crawler"))
                 .filter(noRecentChecks)
                 .flatMap({
-                    connect(it).retry(3) { t ->
-                        t is NotLoadedException
-                    }.onErrorResume { t ->
+                    connect(it).onErrorResume { t ->
                         if (t is NotLoadedException) {
                             log.debug("Peer not loaded. ${t.peer.address}")
                             noRecentChecks.forget(t.peer.address)
@@ -123,6 +121,7 @@ class Crawler(
                 .subscribeOn(Schedulers.newSingle("connected"))
                 .doOnNext { monitoring.onPeerProcessed(it) }
                 .map(processor)
+                .doOnError { it.printStackTrace() }
                 .subscribe(fileJsonExport)
 
         server()
