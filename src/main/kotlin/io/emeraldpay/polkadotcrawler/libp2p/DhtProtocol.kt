@@ -3,7 +3,6 @@ package io.emeraldpay.polkadotcrawler.libp2p
 import com.google.protobuf.ByteString
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.PeerId
-import io.libp2p.core.multiformats.Multiaddr
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import java.nio.ByteBuffer
@@ -13,16 +12,17 @@ class DhtProtocol() {
 
     companion object {
         private val log = LoggerFactory.getLogger(DhtProtocol::class.java)
+        private const val REQUESTS = 32
     }
 
     private val sizePrefixed = SizePrefixed.Varint()
 
     fun start(): Flux<ByteBuffer> {
         return Flux.merge(
-                Flux.range(0, 4).map {
+                Flux.range(0, REQUESTS).map {
                     requestNodes(it)
                 },
-                Flux.range(0, 4).map {
+                Flux.range(0, REQUESTS).map {
                     requestProviders(it)
                 }
         )
