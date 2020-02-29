@@ -40,8 +40,12 @@ class Mplex: AutoCloseable {
     fun parse(msg: ByteBuffer): List<Message> {
         val result = ArrayList<Message>(1)
         while (msg.remaining() > 0) {
-            val parsed = Message.decode(msg)
-            result.add(parsed)
+            try {
+                val parsed = Message.decode(msg)
+                result.add(parsed)
+            } catch (e: Throwable) {
+                log.debug("Invalid message. ${e.message}")
+            }
         }
         return result
     }
@@ -113,6 +117,9 @@ class Mplex: AutoCloseable {
             fun decode(input: ByteBuffer): Message {
                 val header = Header.decode(input)
                 val len = VARINT_CONVERTER.read(input)
+                if (input.remaining() < len) {
+                    throw IllegalArgumentException("Buffer is shorter than declared length. ${input.remaining()} < $len")
+                }
                 val data = ByteArray(len)
                 input.get(data)
                 return Message(header, ByteBuffer.wrap(data))
