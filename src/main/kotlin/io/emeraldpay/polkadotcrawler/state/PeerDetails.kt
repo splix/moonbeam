@@ -9,9 +9,11 @@ import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 import java.lang.StringBuilder
 import java.net.InetAddress
+import java.time.Instant
 
 class PeerDetails(
-        val address: Multiaddr
+        val address: Multiaddr,
+        val incoming: Boolean
 ) {
 
     companion object {
@@ -25,6 +27,9 @@ class PeerDetails(
 
     private lateinit var host: InetAddress
     private var port: Int? = null
+    val connectedAt = Instant.now()
+    var disconnectedAt: Instant? = null
+        private set
 
     init {
         listOf(Protocol.IP4, Protocol.IP6, Protocol.DNS4).find { protocol ->
@@ -63,5 +68,9 @@ class PeerDetails(
 
     fun filled(): Boolean {
         return StringUtils.isNoneEmpty(agent)
+    }
+
+    fun close() {
+        disconnectedAt = Instant.now()
     }
 }

@@ -11,6 +11,7 @@ open class ProcessedPeerDetails(
     var peerId: String? = null
     var agent: Agent? = null
     var host: Host? = null
+    var connection: ConnectionDetails? = null
 
     class Host(
             val address: String,

@@ -176,10 +176,9 @@ class Crawler(
                     .doOnNext { crawler = it }
                     .flatMapMany { it.connect() }
                     .take(Duration.ofSeconds(15))
-                    .doFinally {
-                        crawler?.disconnect()
-                    }
-                    .reduce(PeerDetails(address), readFromPeer(address))
+                    .doFinally { crawler?.disconnect() }
+                    .reduce(PeerDetails(address, false), readFromPeer(address))
+                    .doOnNext { it.close() }
                     .onErrorResume {
                         log.debug("Connection failure. ${it.javaClass}: ${it.message}")
                         Mono.empty()
@@ -219,7 +218,7 @@ class Crawler(
                         val result = crawler.handle(inbound, outbound, false)
                         Flux.from(result.t2)
                                 .take(Duration.ofSeconds(60))
-                                .reduce(PeerDetails(address), readFromPeer(address))
+                                .reduce(PeerDetails(address, true), readFromPeer(address))
                                 .filter { it.filled() }
                                 .subscribe(connected)
                         result.t1

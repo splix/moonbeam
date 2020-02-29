@@ -1,11 +1,13 @@
 package io.emeraldpay.polkadotcrawler.processing
 
+import io.emeraldpay.polkadotcrawler.state.ConnectionDetails
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
 import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
 import io.libp2p.core.multiformats.Protocol
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
+import java.time.Instant
 import java.util.function.Function
 
 @Service
@@ -32,6 +34,12 @@ class FullProcessor(): Function<PeerDetails, ProcessedPeerDetails> {
         }
 
         result.host = ProcessedPeerDetails.Host.from(peer)
+
+        result.connection = ConnectionDetails(
+                if (peer.incoming) { ConnectionDetails.ConnectionType.IN } else { ConnectionDetails.ConnectionType.OUT },
+                peer.connectedAt,
+                peer.disconnectedAt ?: Instant.now()
+        )
 
         return result
     }

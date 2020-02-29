@@ -22,6 +22,7 @@ class PeerDetailsJson(timestamp: Instant): ProcessedPeerDetails(timestamp) {
             result.peerId = peer.peerId
             result.agent = peer.agent
             result.host = peer.host
+            result.connection = peer.connection
             return result
         }
     }
