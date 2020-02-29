@@ -77,6 +77,14 @@ class Multistream {
         }
     }
 
+    fun withProtocol(initiator: Boolean, inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
+        return if (initiator) {
+            propose(inbound, protocol, handler)
+        } else {
+            negotiate(inbound, protocol, handler)
+        }
+    }
+
     fun propose(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
         val handshake = Mono.just(multistreamHeader(protocol))
         return Flux.concat(handshake, negotiate(inbound, protocol, handler, true, true))
@@ -141,6 +149,9 @@ class Multistream {
                         Flux.empty<ByteBuffer>()
                     }
                 }
+                //now wrap into ConnectableFlux because connection can be retried on error, i.e. subscribed more than once,
+                //but FluxSwitchOnFirst allows only on subscriber
+                .publish().autoConnect()
         val handshake = if (initiated) {
             Mono.empty<ByteBuffer>()
         } else {

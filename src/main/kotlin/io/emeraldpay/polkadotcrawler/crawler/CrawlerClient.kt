@@ -12,6 +12,7 @@ import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import io.netty.buffer.Unpooled
 import io.netty.channel.ConnectTimeoutException
+import org.apache.commons.lang3.StringUtils
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -72,7 +73,7 @@ class CrawlerClient(
                     .host(host)
                     .port(port)
                     .handle { inbound, outbound ->
-                        val x = handle(inbound, outbound)
+                        val x = handle(inbound, outbound, true)
                         results.complete(Flux.from(x.t2))
                         Flux.from(x.t1).onErrorResume { t ->
                             if (t is IOException) {
@@ -115,6 +116,9 @@ class CrawlerClient(
         return Flux.empty()
     }
 
+    /**
+     * Request neighbor peers through hDHT request
+     */
     fun requestDht(mplex: Mplex): Tuple2<
             Flux<Data<Dht.Message>>,
             Publisher<ByteBuffer>> {
@@ -163,6 +167,9 @@ class CrawlerClient(
         )
     }
 
+    /**
+     * Request and process full identity from remote
+     */
     fun requestIdentify(mplex: Mplex): Tuple2<
             Mono<Data<IdentifyOuterClass.Identify>>,
             Publisher<ByteBuffer>> {
@@ -198,22 +205,25 @@ class CrawlerClient(
         return Tuples.of(result, stream.outbound())
     }
 
+    /**
+     * Respond to common requests initialized by Polkadot, such as /ipfs/ping and ipfs/id
+     */
     fun respondStandardRequests(mplex: Mplex): Flux<ByteBuffer> {
         return mplex.receiveStreams(object: Mplex.Handler<Flux<ByteBuffer>> {
             override fun handle(stream: Mplex.MplexStream): Flux<ByteBuffer> {
                 val repl = Flux.from(stream.inbound)
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
-                                val msg = signal.get()!!
-                                if (ByteBufferCommons.contains(msg, "/ipfs/ping/1.0.0".toByteArray())) {
+                                val msg = StringUtils.deleteWhitespace(String(signal.get()!!.array()))
+                                if (msg.contains("/ipfs/ping/1.0.0")) {
                                     val start = Mono.just(multistream.multistreamHeader("/ipfs/ping/1.0.0"))
                                     val response = flux.skip(1).take(1).single()
                                     return@switchOnFirst Flux.concat(start, response)
-                                } else if (ByteBufferCommons.contains(msg,"/ipfs/id/1.0.0".toByteArray())) {
+                                } else if (msg.contains("/ipfs/id/1.0.0")) {
                                     val value = ByteBuffer.wrap(agent.toByteArray())
                                     return@switchOnFirst Flux.just(value)
                                 } else {
-                                    log.debug("Request to an unsupported protocol")
+                                    log.debug("Request to an unsupported protocol $msg from $remote")
                                 }
                             }
                             Flux.empty<ByteBuffer>()
@@ -223,57 +233,20 @@ class CrawlerClient(
         }).flatMap { it }
     }
 
-
-    fun handle(inbound: NettyInbound, outbound: NettyOutbound): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
-//        outbound.withConnection { conn ->
-//            conn.addHandler(
-//                    io.netty.handler.logging.LoggingHandler("io.netty.util.internal.logging.Slf4JLogger",
-//                    io.netty.handler.logging.LogLevel.INFO)
-//            )
-//        }
-
-        val secureTransport = NoiseTransport(keys.first, true)
-
-        val inboundBytes = inbound.receive()
-                .map {
-                    val copy = ByteBuffer.allocate(it.readableBytes())
-                    it.readBytes(copy)
-//                    it.release()
-                    copy.flip()
-                }
-
-        val processorsData = CompletableFuture<Publisher<Data<*>>>()
-
-        val handleMplex = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { mplexInbound ->
-            val mplex = Mplex()
-            mplex.start(mplexInbound)
-            val standardResponses = respondStandardRequests(mplex)
-
-            val identify = requestIdentify(mplex)
-            val dht = requestDht(mplex)
-            val peerId = secureTransport.getPeerId()
-                    .map { Data(DataType.PEER_ID, it) }
-
-            processorsData.complete(
-                    Flux.merge(
-                            Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
-                            Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
-                            Flux.from(peerId).subscribeOn(Schedulers.elastic())
-                    )
-            )
-            val queryOutbound = Flux.merge(
-                    identify.t2, dht.t2
-            )
-
-            Flux.merge(standardResponses, queryOutbound)
-        }
-
-        val handleConnected = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { receiveSource ->
+    /**
+     * Continue connection when both parties are agreed on using Noise. The method sets up the Noise protocol itself
+     * and continues with setting up Mplex multiplexing protocol.
+     */
+    fun handleConnected(secureTransport: NoiseTransport,
+                        handleMplex: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>,
+                        initiator: Boolean
+    ): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
+        return Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { receiveSource ->
             val receive = receiveSource.share()
 
             val proposeSecure = Flux.from(secureTransport.handshake())
                     .transform(SizePrefixed.Twobytes().writer())
-            val establishSecure = Mono.from(secureTransport.establish(receive)).then()
+            val establishSecure = secureTransport.establish(receive)
 
             val decrypted =  receive
                     .skipUntil { secureTransport.isEstablished() }
@@ -284,25 +257,84 @@ class CrawlerClient(
                     }
 //                    .transform(DebugCommons.traceByteBuf("decrypted", false))
 
-            val mplex = multistream.propose(decrypted, "/mplex/6.7.0", handleMplex)
+            val mplex = multistream.withProtocol(initiator, decrypted, "/mplex/6.7.0", handleMplex)
 
             Flux.concat(
                     proposeSecure,
-                    establishSecure
-                            .thenMany(mplex)
-//                            .transform(DebugCommons.traceByteBuf("encrypt", true))
-                            .transform(secureTransport.encoder())
-                            .transform(SizePrefixed.Twobytes().writer())
-            )
+                    establishSecure,
+                    mplex
+//                        .transform(DebugCommons.traceByteBuf("encrypt", true))
+                        .transform(secureTransport.encoder())
+                        .transform(SizePrefixed.Twobytes().writer())
+            ).doOnError { it.printStackTrace() }
         }
-
-        val connection = multistream.propose(inboundBytes, "/noise/ix/25519/chachapoly/sha256/0.1.0", handleConnected)
-
-        val main: Publisher<Void> = outbound.send(connection.map { Unpooled.wrappedBuffer(it) })
-
-        return Tuples.of(main, Mono.fromCompletionStage(processorsData).flatMapMany { it })
     }
 
+    /**
+     * Continue with established Mplex transport.
+     */
+    fun handleMplex(): Pair<Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, CompletableFuture<Publisher<Data<*>>>>  {
+        val processorsData = CompletableFuture<Publisher<Data<*>>>()
+        val handler = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { mplexInbound ->
+            val mplex = Mplex()
+            mplex.start(mplexInbound)
+            val standardResponses = respondStandardRequests(mplex)
+
+            val identify = requestIdentify(mplex)
+            val dht = requestDht(mplex)
+
+            processorsData.complete(
+                    Flux.merge(
+                            Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
+                            Flux.from(dht.t1).subscribeOn(Schedulers.elastic())
+                    )
+            )
+            val queryOutbound = Flux.merge(
+                    identify.t2, dht.t2
+            )
+
+            Flux.merge(standardResponses, queryOutbound)
+        }
+        return Pair(handler, processorsData)
+    }
+
+
+    fun handle(inbound: NettyInbound, outbound: NettyOutbound, initiator: Boolean): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
+//        outbound.withConnection { conn ->
+//            conn.addHandler(
+//                    io.netty.handler.logging.LoggingHandler("io.netty.util.internal.logging.Slf4JLogger",
+//                    io.netty.handler.logging.LogLevel.INFO)
+//            )
+//        }
+
+        val secureTransport = NoiseTransport(keys.first, initiator)
+
+        val inboundBytes = inbound.receive()
+                .map {
+                    val copy = ByteBuffer.allocate(it.readableBytes())
+                    it.readBytes(copy)
+//                    it.release()
+                    copy.flip()
+                }
+
+        val handleMplex = handleMplex()
+
+        val connection = multistream.withProtocol(
+                initiator,
+                inboundBytes, "/noise/ix/25519/chachapoly/sha256/0.1.0",
+                handleConnected(secureTransport, handleMplex.first, initiator)
+        ).doOnError { it.printStackTrace() }
+
+        val peerId = secureTransport.getPeerId().map { Data(DataType.PEER_ID, it) }
+        val main: Publisher<Void> = outbound.send(connection.map { Unpooled.wrappedBuffer(it) })
+
+        return Tuples.of(main,
+                Flux.merge(
+                        Mono.fromCompletionStage(handleMplex.second).flatMapMany { it },
+                        peerId
+                )
+        )
+    }
 
     //
     // ------------------------

@@ -62,32 +62,51 @@ class NoiseTransport(
         handshakeState.start()
     }
 
+    /**
+     * Initiate handshake, if necessary
+     */
     fun handshake(): Publisher<ByteBuffer> {
-        log.debug("Starting handshake")
-        if (initiator) {
-            log.debug("Initiate Noise protocol")
-            // get identity public key
-            val publicKey: ByteArray = marshalPublicKey(localKey.publicKey())
-
-            // get noise static public key signature
-            val signature = localKey.sign(getPublicKey(localNoiseState))
-
-            // generate an appropriate protobuf element
-            val payloadMsg =
-                    Spipe.NoiseHandshakePayload.newBuilder()
-                            .setLibp2PKey(ByteString.copyFrom(publicKey)) //pubkey
-                            .setNoiseStaticKeySignature(ByteString.copyFrom(signature)) //signature
-                            .build()
-            val payload = framer.write(ByteBuffer.wrap(payloadMsg.toByteArray())).array()
-
-            // create the message with the signed payload -
-            // verification happens once the noise static key is shared
-            return Mono.just(ByteBuffer.wrap(handshakeMessage(payload)))
-        }
-        return Mono.empty()
+        log.debug("Initiate handshake")
+        return if (initiator) {
+            sendIdentity()
+        } else Mono.empty()
     }
 
+    fun sendIdentity(): Mono<ByteBuffer> {
+        log.debug("Send local key to the remote")
+        // get identity public key
+        val publicKey: ByteArray = marshalPublicKey(localKey.publicKey())
+
+        // get noise static public key signature
+        val signature = localKey.sign(getPublicKey(localNoiseState))
+
+        // generate an appropriate protobuf element
+        val payloadMsg =
+                Spipe.NoiseHandshakePayload.newBuilder()
+                        .setLibp2PKey(ByteString.copyFrom(publicKey)) //pubkey
+                        .setNoiseStaticKeySignature(ByteString.copyFrom(signature)) //signature
+                        .build()
+        val payload = framer.write(ByteBuffer.wrap(payloadMsg.toByteArray())).array()
+
+        // create the message with the signed payload -
+        // verification happens once the noise static key is shared
+        return Mono.just(ByteBuffer.wrap(handshakeMessage(payload)))
+    }
+
+    /**
+     * Establish secure connection by exchanging keys with remote
+     */
     fun establish(inbound: Flux<ByteBuffer>): Publisher<ByteBuffer> {
+        val next = if (initiator) {
+            //need an empty value here because, not just empty Publisher, because otherwise next steps will be cancelled
+            Mono.just(ByteBuffer.allocate(0))
+        } else {
+            Mono.just(this)
+                    .flatMap { it.sendIdentity() }
+                    .flux()
+                    .transform(framer.writer())
+                    .next()
+        }
         return inbound
                 //read & decrypt message with size prefix
                 .transform(framer.reader())
@@ -111,11 +130,6 @@ class NoiseTransport(
 
                     peerId = PeerId.fromPubKey(publicKey)
                     peerIdFuture.complete(peerId)
-
-                    //extract keys used for encryption/decryption
-                    val cipherStatePair = handshakeState.split()
-                    senderKey = cipherStatePair.sender
-                    receiverKey = cipherStatePair.receiver
                 }
                 .doOnError {
                     log.warn("Failed to confirm Noise", it)
@@ -123,7 +137,18 @@ class NoiseTransport(
                         peerIdFuture.completeExceptionally(it)
                     }
                 }
-                .then(Mono.empty())
+                //respond with a key, if not initiator
+                .then(next)
+                .doOnNext {
+                    //extract keys used for encryption/decryption
+                    log.debug("Extract sender/receiver keys")
+                    val cipherStatePair = handshakeState.split()
+                    senderKey = cipherStatePair.sender
+                    receiverKey = cipherStatePair.receiver
+                    log.debug("Noise protocol is fully established")
+                }
+                //filter out possible empty value
+                .filter { it.hasRemaining() }
     }
 
     /**
