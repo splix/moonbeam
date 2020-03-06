@@ -4,6 +4,7 @@ import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
+import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.PeerId
 import io.libp2p.core.crypto.PrivKey
@@ -206,6 +207,47 @@ class CrawlerClient(
     }
 
     /**
+     * Read blockchain status from remote
+     */
+    fun requestStatus(mplex: Mplex): Tuple2<
+            Mono<Data<StatusProtocol.Status>>,
+            Publisher<ByteBuffer>> {
+
+        val protocol = "/substrate/ksmcc3/6"
+
+        val stream = mplex.newStream(
+                Mono.just(multistream.multistreamHeader(protocol))
+        )
+        val inbound: Publisher<ByteBuffer> = stream.inbound
+
+        // don't need to send anything, but we keep connection because we expect data
+        stream.send(Flux.concat(Mono.never()))
+
+        val statusProtocol = StatusProtocol()
+
+        val result  = Flux.from(inbound)
+                .transform(SizePrefixed.Varint().reader())
+//                .transform(DebugCommons.traceByteBuf("Status", false))
+                .transform(multistream.readProtocol(protocol, false))
+                .next()
+                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Status")))
+                .map(statusProtocol::parse)
+                .doOnError {
+                    if (it is DataTimeoutException) {
+                        log.debug("Timeout for ${it.name} from $remote")
+                    } else if (it is IOException) {
+                        log.debug("Status not received. ${it.message}")
+                    } else {
+                        log.warn("Status not received", it)
+                    }
+                }
+                .onErrorResume { Mono.empty() }
+                .map { Data(DataType.STATUS, it) }
+
+        return Tuples.of(result, stream.outbound())
+    }
+
+    /**
      * Respond to common requests initialized by Polkadot, such as /ipfs/ping and ipfs/id
      */
     fun respondStandardRequests(mplex: Mplex): Flux<ByteBuffer> {
@@ -282,15 +324,19 @@ class CrawlerClient(
 
             val identify = requestIdentify(mplex)
             val dht = requestDht(mplex)
+            val status = requestStatus(mplex)
 
             processorsData.complete(
                     Flux.merge(
                             Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
-                            Flux.from(dht.t1).subscribeOn(Schedulers.elastic())
+                            Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
+                            Flux.from(status.t1).subscribeOn(Schedulers.elastic())
                     )
             )
             val queryOutbound = Flux.merge(
-                    identify.t2, dht.t2
+                    identify.t2,
+                    dht.t2,
+                    status.t2
             )
 
             Flux.merge(standardResponses, queryOutbound)
@@ -343,7 +389,8 @@ class CrawlerClient(
     enum class DataType(val clazz: Class<out Any>) {
         IDENTIFY(IdentifyOuterClass.Identify::class.java),
         DHT_NODES(Dht.Message::class.java),
-        PEER_ID(PeerId::class.java)
+        PEER_ID(PeerId::class.java),
+        STATUS(StatusProtocol.Status::class.java)
     }
 
     class Data<T>(

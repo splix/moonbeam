@@ -12,6 +12,7 @@ open class ProcessedPeerDetails(
     var agent: Agent? = null
     var host: Host? = null
     var connection: ConnectionDetails? = null
+    var blockchain: Blockchain? = null
 
     class Host(
             val address: String,

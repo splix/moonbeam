@@ -29,6 +29,7 @@ class Mplex: AutoCloseable {
                 .flatMap {
                     Flux.fromIterable(parse(it))
                 }
+//                .doOnNext { msg -> DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false) }
                 .publish().refCount(1, Duration.ofMillis(100))
     }
 

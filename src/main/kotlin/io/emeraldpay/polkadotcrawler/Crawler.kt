@@ -9,6 +9,7 @@ import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.export.FileJsonExport
 import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
+import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
 import io.emeraldpay.polkadotcrawler.processing.FullProcessor
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
@@ -160,6 +161,10 @@ class Crawler(
 
                 CrawlerClient.DataType.PEER_ID -> {
                     details.peerId = it.cast(PeerId::class.java).data
+                }
+
+                CrawlerClient.DataType.STATUS -> {
+                    details.status = it.cast(StatusProtocol.Status::class.java).data
                 }
             }
 

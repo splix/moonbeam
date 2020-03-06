@@ -25,6 +25,22 @@ class Multistream {
         private val sizePrefix = SizePrefixed.Varint().prefix
     }
 
+    fun decline(): ByteBuffer {
+        val len1 = sizePrefix.write(NAME_BYTES.size + 1)
+        val len2 = sizePrefix.write(NA.size)
+
+        val result = ByteBuffer.allocate(
+                len1.remaining() + NAME_BYTES.size + 1
+                + len2.remaining() + NA.size)
+        result.put(len1)
+        result.put(NAME_BYTES)
+        result.put(NL)
+        result.put(len2)
+        result.put(NA)
+
+        return result.flip()
+    }
+
     /**
      * Create full multistream header, with multistream itself and protocol definition
      */
@@ -40,6 +56,23 @@ class Multistream {
         result.put(protocol.toByteArray())
         result.put(NL)
 
+        return result.flip()
+    }
+
+    /**
+     * Spec: https://github.com/multiformats/multistream-select#listing
+     */
+    fun list(protocols: List<String>): ByteBuffer {
+        val headers = protocols.map { plainHeader(it) }
+        val len = headers.map { it.remaining() }.sum() + 1
+        if (len > 255) {
+            //it seems that the spec expect a single byte length
+            throw IllegalArgumentException("Too many protocols")
+        }
+        val result = ByteBuffer.allocate(1 + len)
+        result.put(len.toByte())
+        headers.forEach { result.put(it) }
+        result.put(NL)
         return result.flip()
     }
 

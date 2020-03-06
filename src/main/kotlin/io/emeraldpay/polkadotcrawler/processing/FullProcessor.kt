@@ -1,9 +1,11 @@
 package io.emeraldpay.polkadotcrawler.processing
 
+import io.emeraldpay.polkadotcrawler.state.Blockchain
 import io.emeraldpay.polkadotcrawler.state.ConnectionDetails
 import io.emeraldpay.polkadotcrawler.state.PeerDetails
 import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
 import io.libp2p.core.multiformats.Protocol
+import org.apache.commons.codec.binary.Hex
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
@@ -40,6 +42,14 @@ class FullProcessor(): Function<PeerDetails, ProcessedPeerDetails> {
                 peer.connectedAt,
                 peer.disconnectedAt ?: Instant.now()
         )
+
+        result.blockchain = peer.status?.let {
+            Blockchain(
+                    it.height,
+                    Hex.encodeHexString(it.bestHash),
+                    Hex.encodeHexString(it.genesis)
+            )
+        }
 
         return result
     }

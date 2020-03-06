@@ -1,6 +1,8 @@
 package io.emeraldpay.polkadotcrawler
 
 import org.slf4j.LoggerFactory
+import java.io.IOException
+import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 
 class ByteBufferCommons {
@@ -19,6 +21,9 @@ class ByteBufferCommons {
         }
 
         fun copy(buf: ByteBuffer, length: Int): ByteBuffer {
+            if (buf.remaining() < length) {
+                throw IOException("Need $length to read, have only ${buf.remaining()}")
+            }
             val result = ByteArray(length)
             buf.get(result)
             return ByteBuffer.wrap(result)

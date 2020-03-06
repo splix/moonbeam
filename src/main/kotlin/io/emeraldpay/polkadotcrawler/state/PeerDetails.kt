@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.state
 
 import identify.pb.IdentifyOuterClass
+import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
 import io.emeraldpay.polkadotcrawler.proto.Dht
 import io.libp2p.core.PeerId
 import io.libp2p.core.multiformats.Multiaddr
@@ -30,6 +31,7 @@ class PeerDetails(
     val connectedAt = Instant.now()
     var disconnectedAt: Instant? = null
         private set
+    var status: StatusProtocol.Status? = null
 
     init {
         listOf(Protocol.IP4, Protocol.IP6, Protocol.DNS4).find { protocol ->

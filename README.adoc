@@ -8,8 +8,8 @@ NOTE: The project is in an _early stage_ of development
 .Features roadmap
 - [x] parse node details and extract info about software
 - [x] save found nodes to a local file in JSON format
-- [ ] log connection details
-- [ ] fetch details about remote blockchain
+- [x] log connection details
+- [x] fetch details about remote blockchain
 - [ ] basic log to MySQL
 - [ ] log to AWS S3
 - [ ] log to GCP Storage
