@@ -1,6 +1,7 @@
 package io.emeraldpay.polkadotcrawler.processing
 
 import io.emeraldpay.polkadotcrawler.state.Agent
+import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 
 /**
@@ -13,7 +14,7 @@ class AgentParser {
     companion object {
         private val log = LoggerFactory.getLogger(AgentParser::class.java)
         private val RE_FULL = Regex("^(.+?)/(.+?)\\s(\\(.+?\\))$")
-        private val RE_VERSION = Regex("v?(\\d+\\.\\d+\\.\\d+)-(.+?)-(.+)")
+        private val RE_COMMIT_VERSION = Regex("v?(\\d+\\.\\d+\\.\\d+)(-([a-f0-9]{7,8}))?-(.+)")
     }
 
     /**
@@ -31,10 +32,10 @@ class AgentParser {
     }
 
     fun extractVersion(agent: Agent, version: String) {
-        RE_VERSION.matchEntire(version)?.let { m ->
+        RE_COMMIT_VERSION.matchEntire(version)?.let { m ->
             agent.version = "v${m.groupValues[1]}"
-            agent.commit = m.groupValues[2]
-            agent.platformFull = m.groupValues[3]
+            agent.commit = StringUtils.trimToNull(m.groupValues[3])
+            agent.platformFull = m.groupValues[4]
         }
     }
 
