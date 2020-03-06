@@ -23,6 +23,7 @@ class Multistream {
         private val NA = byteArrayOf(0x03, 0x6e, 0x61, 0x0a)
 
         private val sizePrefix = SizePrefixed.Varint().prefix
+        private val singleByteSize = SizePrefixed.SingleByte()
     }
 
     fun decline(): ByteBuffer {
@@ -70,10 +71,16 @@ class Multistream {
             throw IllegalArgumentException("Too many protocols")
         }
         val result = ByteBuffer.allocate(1 + len)
-        result.put(len.toByte())
+        result.put(singleByteSize.prefix.write(len))
         headers.forEach { result.put(it) }
         result.put(NL)
         return result.flip()
+    }
+
+    fun parseList(buf: ByteBuffer): List<String> {
+        var len = singleByteSize.prefix.read(buf)
+        val protocols = singleByteSize.split(buf)
+        return protocols.map { String(it.array()).trim() }
     }
 
     /**
@@ -203,10 +210,14 @@ class Multistream {
      * @param includesSizePrefix (optional, default true) if true then expect that each protocol line starts with it's length
      * @param onFound (option) additional publisher to subscribe when protocol found
      */
-    fun readProtocol(protocol: String, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
+    fun readProtocol(protocol: String?, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
         var headerBuffer: ByteBuffer? = null
 
-        var headerSize = NAME_BYTES.size + NL_SIZE + protocol.length + NL_SIZE
+        var headerSize = NAME_BYTES.size + NL_SIZE
+
+        if (protocol != null) {
+            headerSize += protocol.length + NL_SIZE
+        }
 
         if (includesSizePrefix) {
             headerSize += LEN_PREFIX_SIZE * 2
@@ -218,11 +229,13 @@ class Multistream {
         }
         exp.put(NAME_BYTES)
         exp.put(NL)
-        if (includesSizePrefix) {
-            exp.put((protocol.length + 1).toByte())
+        if (protocol != null) {
+            if (includesSizePrefix) {
+                exp.put((protocol.length + 1).toByte())
+            }
+            exp.put(protocol.toByteArray())
+            exp.put(NL)
         }
-        exp.put(protocol.toByteArray())
-        exp.put(NL)
 
         var headerFound = false
 

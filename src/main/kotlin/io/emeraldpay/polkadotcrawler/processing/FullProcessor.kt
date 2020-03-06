@@ -1,9 +1,6 @@
 package io.emeraldpay.polkadotcrawler.processing
 
-import io.emeraldpay.polkadotcrawler.state.Blockchain
-import io.emeraldpay.polkadotcrawler.state.ConnectionDetails
-import io.emeraldpay.polkadotcrawler.state.PeerDetails
-import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
+import io.emeraldpay.polkadotcrawler.state.*
 import io.libp2p.core.multiformats.Protocol
 import org.apache.commons.codec.binary.Hex
 import org.slf4j.LoggerFactory
@@ -49,6 +46,10 @@ class FullProcessor(): Function<PeerDetails, ProcessedPeerDetails> {
                     Hex.encodeHexString(it.bestHash),
                     Hex.encodeHexString(it.genesis)
             )
+        }
+
+        result.protocols = peer.protocols?.let {
+            Protocols(it)
         }
 
         return result

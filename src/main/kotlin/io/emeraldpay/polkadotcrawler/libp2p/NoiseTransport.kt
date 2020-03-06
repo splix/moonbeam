@@ -39,7 +39,7 @@ class NoiseTransport(
         var localStaticPrivateKey25519: ByteArray = ByteArray(32).also { Noise.random(it) }
         private const val MAC_LENGTH = 16
 
-        private val framer = SizePrefixed.Twobytes()
+        private val framer = SizePrefixed.TwoBytes()
     }
 
     private val localNoiseState = Noise.createDH("25519")

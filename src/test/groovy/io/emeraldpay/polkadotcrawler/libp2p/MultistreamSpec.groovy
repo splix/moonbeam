@@ -283,4 +283,26 @@ class MultistreamSpec extends Specification {
                 .expectComplete()
                 .verify(Duration.ofSeconds(1))
     }
+
+    def "Parse list"() {
+        setup:
+        def data = "09142f7375627374726174652f6b736d6363332f360a142f7375627374726174652f6b736d6363332f350a142f7375627374726174652f6b736d6363332f340a142f7375627374726174652f6b736d6363332f330a112f697066732f70696e672f312e302e300a0f2f697066732f69642f312e302e300a102f697066732f6b61642f312e302e300a0f2f6b736d6363332f73796e632f310a102f6b736d6363332f6c696768742f310a"
+
+        when:
+        def act = multistream.parseList(ByteBuffer.wrap(Hex.decodeHex(data)))
+
+        then:
+
+        act == [
+                "/substrate/ksmcc3/6",
+                "/substrate/ksmcc3/5",
+                "/substrate/ksmcc3/4",
+                "/substrate/ksmcc3/3",
+                "/ipfs/ping/1.0.0",
+                "/ipfs/id/1.0.0",
+                "/ipfs/kad/1.0.0",
+                "/ksmcc3/sync/1",
+                "/ksmcc3/light/1"
+        ]
+    }
 }

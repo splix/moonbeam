@@ -32,6 +32,7 @@ class PeerDetails(
     var disconnectedAt: Instant? = null
         private set
     var status: StatusProtocol.Status? = null
+    var protocols: List<String>? = null
 
     init {
         listOf(Protocol.IP4, Protocol.IP6, Protocol.DNS4).find { protocol ->

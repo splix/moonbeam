@@ -166,6 +166,10 @@ class Crawler(
                 CrawlerClient.DataType.STATUS -> {
                     details.status = it.cast(StatusProtocol.Status::class.java).data
                 }
+
+                CrawlerClient.DataType.PROTOCOLS -> {
+                    details.protocols = it.cast(CrawlerClient.StringList::class.java).data.values
+                }
             }
 
             details

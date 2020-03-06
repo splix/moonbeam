@@ -24,6 +24,7 @@ class PeerDetailsJson(timestamp: Instant): ProcessedPeerDetails(timestamp) {
             result.host = peer.host
             result.connection = peer.connection
             result.blockchain = peer.blockchain
+            result.protocols = peer.protocols
             return result
         }
     }

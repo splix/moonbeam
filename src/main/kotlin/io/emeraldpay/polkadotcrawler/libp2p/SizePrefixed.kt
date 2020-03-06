@@ -13,7 +13,6 @@ import java.nio.BufferUnderflowException
 import java.nio.ByteBuffer
 import java.util.function.Function
 import java.util.function.Predicate
-import kotlin.experimental.and
 import kotlin.math.min
 
 class SizePrefixed {
@@ -23,7 +22,7 @@ class SizePrefixed {
 
         @JvmStatic
         fun Standard(): Converter {
-            return Converter(FourbyteSize())
+            return Converter(FourBytesSize())
         }
 
         @JvmStatic
@@ -32,8 +31,13 @@ class SizePrefixed {
         }
 
         @JvmStatic
-        fun Twobytes(): Converter {
-            return Converter(TwobyteSize())
+        fun TwoBytes(): Converter {
+            return Converter(TwoBytesSize())
+        }
+
+        @JvmStatic
+        fun SingleByte(): Converter {
+            return Converter(SingleByteSize())
         }
     }
 
@@ -141,9 +145,39 @@ class SizePrefixed {
     }
 
     /**
+     * Always uses a single byte to encode/decode length
+     */
+    class SingleByteSize(): SizePrefix<Int> {
+
+        override fun read(input: ByteBuffer): Int {
+            val x = input.get().toInt()
+            if (x < 0) {
+                return 256 + x
+            }
+            return x
+        }
+
+        override fun write(value: Int): ByteBuffer {
+            if (value > 255) {
+                throw IllegalArgumentException("Max size is 255 bytes")
+            }
+            if (value < 0) {
+                throw IllegalArgumentException("Size must be positive number")
+            }
+            val x = if (value > Byte.MAX_VALUE) {
+                value - 255
+            } else {
+                value
+            }
+            return ByteBuffer.wrap(byteArrayOf(value.toByte()))
+        }
+
+    }
+
+    /**
      * Always uses 4 bytes to encode/decode length
      */
-    class FourbyteSize(): SizePrefix<Int> {
+    class FourBytesSize(): SizePrefix<Int> {
         override fun read(input: ByteBuffer): Int {
             return input.getInt()
         }
@@ -197,7 +231,7 @@ class SizePrefixed {
     /**
      * Always uses 2 bytes to encode/decode length
      */
-    class TwobyteSize(): SizePrefix<Int> {
+    class TwoBytesSize(): SizePrefix<Int> {
         private fun readByte(input: ByteBuffer): Int {
             val x = input.get()
             if (x < 0) {

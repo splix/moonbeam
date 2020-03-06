@@ -1,7 +1,6 @@
 package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
-import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
 import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
@@ -13,7 +12,6 @@ import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import io.netty.buffer.Unpooled
 import io.netty.channel.ConnectTimeoutException
-import org.apache.commons.lang3.StringUtils
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -247,6 +245,38 @@ class CrawlerClient(
         return Tuples.of(result, stream.outbound())
     }
 
+    fun requestProtocols(mplex: Mplex): Tuple2<
+            Mono<Data<StringList>>,
+            Publisher<ByteBuffer>> {
+
+        val stream = mplex.newStream(
+                Mono.just(multistream.multistreamHeader("ls"))
+        )
+        val inbound: Publisher<ByteBuffer> = stream.inbound
+
+        val result  = Flux.from(inbound)
+                .transform(SizePrefixed.Varint().reader())
+//                .transform(DebugCommons.traceByteBuf("LS", false))
+                .transform(multistream.readProtocol(null, false))
+                .next()
+                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("LS")))
+                .map(multistream::parseList)
+                .map(::StringList)
+                .doOnError {
+                    if (it is DataTimeoutException) {
+                        log.debug("Timeout for ${it.name} from $remote")
+                    } else if (it is IOException) {
+                        log.debug("LS not received. ${it.message}")
+                    } else {
+                        log.warn("LS not received", it)
+                    }
+                }
+                .onErrorResume { Mono.empty() }
+                .map { Data(DataType.PROTOCOLS, it) }
+
+        return Tuples.of(result, stream.outbound())
+    }
+
     /**
      * Respond to common requests initialized by Polkadot, such as /ipfs/ping and ipfs/id
      */
@@ -256,7 +286,10 @@ class CrawlerClient(
                 val repl = Flux.from(stream.inbound)
                         .switchOnFirst { signal, flux ->
                             if (signal.hasValue()) {
-                                val msg = StringUtils.deleteWhitespace(String(signal.get()!!.array()))
+                                val msg = String(signal.get()!!.array())
+                                        .replace(Regex("[^a-zA-Z0-9./]"), " ")
+                                        .replace(Regex("\\s+"), " ")
+                                        .trim()
                                 if (msg.contains("/ipfs/ping/1.0.0")) {
                                     val start = Mono.just(multistream.multistreamHeader("/ipfs/ping/1.0.0"))
                                     val response = flux.skip(1).take(1).single()
@@ -264,8 +297,24 @@ class CrawlerClient(
                                 } else if (msg.contains("/ipfs/id/1.0.0")) {
                                     val value = ByteBuffer.wrap(agent.toByteArray())
                                     return@switchOnFirst Flux.just(value)
+                                } else if (msg.contains("/ipfs/kad/1.0.0")) {
+                                    //only accepts DHT, but never replies
+                                    val start = Mono.just(multistream.multistreamHeader("/ipfs/kad/1.0.0"))
+                                    return@switchOnFirst Flux.concat(start, Mono.never())
+                                } else if (msg == "/multistream/1.0.0 ls") {
+                                    // see https://github.com/multiformats/multistream-select#listing
+                                    val start = Mono.just(multistream.multistreamHeader("ls"))
+                                    val protocols = Mono.just(multistream.list(listOf(
+                                            "/ipfs/ping/1.0.0",
+                                            "/ipfs/kad/1.0.0",
+                                            "/ipfs/id/1.0.0",
+                                            "/ksmcc3/light/1",
+                                            "/substrate/ksmcc3/6"
+                                    )))
+                                    return@switchOnFirst Flux.concat(start, protocols)
                                 } else {
-                                    log.debug("Request to an unsupported protocol $msg from $remote")
+                                    log.debug("Request to an unsupported protocol [$msg] from $remote")
+                                    return@switchOnFirst Mono.just(multistream.decline())
                                 }
                             }
                             Flux.empty<ByteBuffer>()
@@ -274,6 +323,7 @@ class CrawlerClient(
             }
         }).flatMap { it }
     }
+
 
     /**
      * Continue connection when both parties are agreed on using Noise. The method sets up the Noise protocol itself
@@ -287,12 +337,12 @@ class CrawlerClient(
             val receive = receiveSource.share()
 
             val proposeSecure = Flux.from(secureTransport.handshake())
-                    .transform(SizePrefixed.Twobytes().writer())
+                    .transform(SizePrefixed.TwoBytes().writer())
             val establishSecure = secureTransport.establish(receive)
 
             val decrypted =  receive
                     .skipUntil { secureTransport.isEstablished() }
-                    .transform(SizePrefixed.Twobytes().reader())
+                    .transform(SizePrefixed.TwoBytes().reader())
                     .transform(secureTransport.decoder())
                     .onErrorContinue { t, o ->
                         log.warn("Packet decryption failed", t)
@@ -307,7 +357,7 @@ class CrawlerClient(
                     mplex
 //                        .transform(DebugCommons.traceByteBuf("encrypt", true))
                         .transform(secureTransport.encoder())
-                        .transform(SizePrefixed.Twobytes().writer())
+                        .transform(SizePrefixed.TwoBytes().writer())
             ).doOnError { it.printStackTrace() }
         }
     }
@@ -325,18 +375,21 @@ class CrawlerClient(
             val identify = requestIdentify(mplex)
             val dht = requestDht(mplex)
             val status = requestStatus(mplex)
+            val protocols = requestProtocols(mplex)
 
             processorsData.complete(
                     Flux.merge(
                             Flux.from(identify.t1).subscribeOn(Schedulers.elastic()),
                             Flux.from(dht.t1).subscribeOn(Schedulers.elastic()),
-                            Flux.from(status.t1).subscribeOn(Schedulers.elastic())
+                            Flux.from(status.t1).subscribeOn(Schedulers.elastic()),
+                            Flux.from(protocols.t1).subscribeOn(Schedulers.elastic())
                     )
             )
             val queryOutbound = Flux.merge(
                     identify.t2,
                     dht.t2,
-                    status.t2
+                    status.t2,
+                    protocols.t2
             )
 
             Flux.merge(standardResponses, queryOutbound)
@@ -390,8 +443,13 @@ class CrawlerClient(
         IDENTIFY(IdentifyOuterClass.Identify::class.java),
         DHT_NODES(Dht.Message::class.java),
         PEER_ID(PeerId::class.java),
-        STATUS(StatusProtocol.Status::class.java)
+        STATUS(StatusProtocol.Status::class.java),
+        PROTOCOLS(StringList::class.java)
     }
+
+    data class StringList(
+            val values: List<String>
+    )
 
     class Data<T>(
             val dataType: DataType,

@@ -229,7 +229,7 @@ class SizePrefixedSpec extends Specification{
 
     def "2 byte - read packet"() {
         setup:
-        def converter = SizePrefixed.Twobytes()
+        def converter = SizePrefixed.TwoBytes()
         def p1 = Hex.decodeHex(
                 "00aa" + "23ea79402c915aa1624e2f0fcccdfb29857581a971b060ee39137b7bd2e5862f09642df91e163bd10f8bd6ac8ccab7b57b3fa02d23709104dc1db91e509b1a2800680a24080112202a7f5034210041fbeaae933bbb992aac05ae3163c5f32867142729df9405c0bb1240cec8f7055a59f7a2238de5db4abfa8cf5d916cc58f28be70199bde9128a49777c6d8eb743157d14e180bb8ada3d213b762ee553da9dad72b67e1da5a1fc0a807"
         )
@@ -251,7 +251,7 @@ class SizePrefixedSpec extends Specification{
 
     def "2 byte - read 4 packets"() {
         setup:
-        def converter = SizePrefixed.Twobytes()
+        def converter = SizePrefixed.TwoBytes()
         def p1 = Hex.decodeHex(
                 "0030" + "bd093a4bdd1e6c55de61d6e26d7b2e5dfe67176f8a2d50d8c92fb3f30424ad910e6ad58c84bb4523ff3a519423cf1844"+
                 "003c" + "074adf05ee8fdd14ee1b86849ef7ddf4a3827c39795567c4e6b9e858a6a3fe5c138c79951ca7f61fe65b6edf0b8f63b455e82cecb79ef7f0a9136638"+
@@ -279,7 +279,7 @@ class SizePrefixedSpec extends Specification{
 
     def "2 byte - read value"() {
         setup:
-        def prefix = SizePrefixed.Twobytes().prefix
+        def prefix = SizePrefixed.TwoBytes().prefix
         expect:
         prefix.read(ByteBuffer.wrap(Hex.decodeHex(hex))) == value
         where:
@@ -303,7 +303,7 @@ class SizePrefixedSpec extends Specification{
 
     def "2 byte - write value"() {
         setup:
-        def prefix = SizePrefixed.Twobytes().prefix
+        def prefix = SizePrefixed.TwoBytes().prefix
         expect:
         Hex.encodeHexString(prefix.write(value)) == hex
         where:
