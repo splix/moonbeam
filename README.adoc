@@ -36,20 +36,119 @@ Gradle could be installed from the website https://gradle.org/, or through SDKMA
 gradle run
 ----
 
-=== Command Line Arguments
+=== Run Options
 
 NOTE: If you run with Gradle you can pass arguments with `--args`. Ex. `--args="--export.file.targetdir=my_results_dir"`
 
-- `--export.file.targetdir=<...>` - directory to save results, `./log` by default
+- `--export.file.targetdir=./log` - directory to save results, `./log` by default
 - `--key=<...>` - private key of the node if available. Otherwise a random Private/Public Key are generated and published
-to the output, which can be later reused
+to the output, which can be used on the next run to keep the same `PeerId` and improve discovery by other peers.
+- `--port=30100` - port to listen for incoming connections. `30100` by default
 
-== Build Instructions
+== Output format
 
-Requirements:
+Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
+new line.
 
+The log may contain multiple lines, even for the same remote peer. The main reason for that is because the bot periodically
+reconnects to peers, to check for availability and updates. Another reason is that the bot is also listening for incoming
+connections, so another node can decide to connect to the bot based on its logic.
+
+.Example:
+[source, json]
+----
+{
+  "version":"https://schema.emeraldpay.io/polkabot#v0",
+  "timestamp":"2020-03-06T05:07:42.280046Z",
+  "peerId":"12D3KooWF5pLe2Vvj41GR3B77mwmp5afAQviMDiLYytbS36VSD2o",
+  "agent":{
+    "software":"parity-polkadot",
+    "version":"v0.7.20",
+    "commit":"3738158",
+    "platformFull":"x86_64-linux-gnu",
+    "platform":"linux",
+    "fullName":"parity-polkadot/v0.7.20-3738158-x86_64-linux-gnu (unknown)"
+  },
+  "host":{
+    "address":"/ip4/18.196.25.132/tcp/30333",
+    "hostname":null,
+    "ip":"24.156.21.132",
+    "port":30333,
+    "type":"IP"
+  },
+  "connection":{
+    "connectionType":"OUT",
+    "connectedAt":"2020-03-06T05:07:27.276719Z",
+    "disconnectedAt":"2020-03-06T05:07:42.279986Z"
+  },
+  "blockchain":{
+    "height":1328525,
+    "bestHash":"58e4a0b11edabdbee58c9f5aa430b9b7a7ce344562619b3fb26e2c814d6829aa",
+    "genesis":"b0a8d493285c2df73290dfb7e61f870f17b41801197a149ca93654499ea3dafe"
+  },
+  "protocols":{
+    "versions":[
+      {"id":"/substrate/ksmcc3","versions":["6","5","4","3"]},
+      {"id":"/ipfs/ping","versions":["1.0.0"]},
+      {"id":"/ipfs/id","versions":["1.0.0"]},
+      {"id":"/ipfs/kad","versions":["1.0.0"]}
+    ]
+  }
+}
+----
+
+While most of the fields are self-explanatory, some of them need extra description. Please see below.
+
+.JSON Format
+|===
+| Field | Sample Value | Description
+
+| `version`
+| `https://schema.emeraldpay.io/polkabot#v0`
+| Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
+  moved or renamed) - it gets a new unique id. Please note that at this stage of the development, the schema is not yet
+  finalized. Therefore it's just `v0` at this moment
+
+| `timestamp`
+| `2020-03-06T05:07:42.280046Z`
+| The timestamp when log item was written. Please note it can be different from connection time.
+
+| `connection.connectionType`
+| `OUT`
+| `IN` or `OUT`, depending on the source of the connection. `IN` means that the remote node initiated connection to the bot.
+
+| `protocols`
+|
+| List of protocols (in terms of libp2p) supported by the remote peer
+
+|===
+
+
+== Development
+
+=== Design overview
+
+.System requirements:
 - Java 11+
 - Gradle 5.6+
+- (optional) port 30100 accessible from the internet to accept incoming connections
+
+
+.Design decisions:
+- Uses https://projectreactor.io/[Spring Reactor] and https://en.wikipedia.org/wiki/Reactive_Streams[reactive streams] idea
+  in general. It allows opening many non-blocking connections with minimal overhead, avoiding threads and state
+  synchronization, which is especially crucial for a crawler to make sure it can process hundreds of peers and thousands
+  of connections in parallel.
+- Because the libp2p library for JVM was not production ready at the moment of the development, the required subset of
+  the Libp2p protocol was implemented from scratch. Polkabot implementation has only part of the protocol that is specific
+  for bot functionality and may be missing many other features.
+- A similar situation is for SCALE codec, which didn't have any implementation for JVM. Therefore Polkabot has its own
+  small unoptimized implementation, which is suitable only for reading some types of messages that bot is accessing.
+- The bot is designed for aggressive use of the protocol, just to gather all important details from remotes. It doesn't
+  follow some of the Libp2p and Substrate protocols guidelines, it uses many shortcuts and sometimes deliberately ignores
+  or misuses parts of the protocols to get job done.
+
+=== Build Instructions
 
 .Local build
 ----
@@ -59,7 +158,12 @@ gradle build
 .To build local Docker image:
 ----
 gradle jibDockerBuild
+
+...
+
+docker run emeraldpay/polkabot
 ----
+
 
 == License
 
