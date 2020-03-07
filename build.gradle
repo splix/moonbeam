@@ -132,8 +132,8 @@ jib {
         image = 'openjdk:11-jdk-slim'
     }
     to {
-        image = 'emeraldpay/polkadot-crawler'
-        tags = ['alpha']
+        image = 'emeraldpay/polkabot'
+        tags = ['2', 'beta']
     }
     container {
         volumes = ["/results"]

@@ -1,9 +1,10 @@
-= Polkadot Network Crawler
+= Polkabot - Polkadot Network Crawler
 
 Crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
 details about the node (software version, etc) and its peers to continue scan.
 
-NOTE: The project is in an _early stage_ of development
+NOTE: The project is in an _early stage_ of development. Configuration, run arguments and output format may be changed
+      without backward compatibility.
 
 .Features roadmap
 - [x] parse node details and extract info about software
@@ -23,7 +24,7 @@ fully processed peers to the console.
 === Using Docker
 
 ----
-docker run -v $(pwd)/results:/results emeraldpay/polkadot-crawler
+docker run -v $(pwd)/results:/results emeraldpay/polkabot
 ----
 
 === Using Gradle
