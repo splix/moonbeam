@@ -125,6 +125,14 @@ class Multistream {
         }
     }
 
+    /**
+     * Proposes the protocol to the remote. If remote accepted it, continues with the handler
+     *
+     * @param inbound inbound data
+     * @param protocol supported protocol
+     * @param handler applied to process result once protocol is negotiated
+     * @return outbound data, starts with multistream responses then handler result
+     */
     fun propose(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
         val handshake = Mono.just(multistreamHeader(protocol))
         return Flux.concat(handshake, negotiate(inbound, protocol, handler, true, true))
@@ -136,7 +144,7 @@ class Multistream {
      * @param inbound inbound data
      * @param protocol supported protocol
      * @param handler applied to process result once protocol is negotiated
-     * @return outbound data
+     * @return outbound data, starts with multistream responses then handler result
      */
     fun negotiate(inbound: Flux<ByteBuffer>, protocol: String, handler: Function<Flux<ByteBuffer>, Flux<ByteBuffer>>): Flux<ByteBuffer> {
         return negotiate(inbound, protocol, handler, false, false)

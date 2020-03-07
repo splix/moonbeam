@@ -3,6 +3,7 @@ package io.emeraldpay.polkadotcrawler
 import com.google.protobuf.ByteString
 import identify.pb.IdentifyOuterClass
 import io.emeraldpay.polkadotcrawler.crawler.CrawlerClient
+import io.emeraldpay.polkadotcrawler.crawler.CrawlerData
 import io.emeraldpay.polkadotcrawler.crawler.ExternalIp
 import io.emeraldpay.polkadotcrawler.discover.Discovered
 import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
@@ -72,8 +73,7 @@ class Crawler(
         agent = IdentifyOuterClass.Identify.newBuilder()
                 .setAgentVersion("substrate-bot/0.2.0")
                 .setProtocolVersion("/substrate/1.0")
-                .addProtocols("/substrate/ksmcc3/5")
-                .addProtocols("/substrate/sup/5")
+                .addProtocols("/substrate/ksmcc3/6")
                 .addProtocols("/ipfs/ping/1.0.0")
                 .addProtocols("/ipfs/id/1.0.0")
                 .addProtocols("/ipfs/kad/1.0.0")
@@ -128,11 +128,11 @@ class Crawler(
         server()
     }
 
-    fun readFromPeer(address: Multiaddr): BiFunction<PeerDetails, CrawlerClient.Data<*>, PeerDetails> {
+    fun readFromPeer(address: Multiaddr): BiFunction<PeerDetails, CrawlerData.Value<*>, PeerDetails> {
         return BiFunction { details, it ->
             log.debug("Received ${it.dataType} from $address")
             when (it.dataType) {
-                CrawlerClient.DataType.DHT_NODES -> {
+                CrawlerData.Type.DHT_NODES -> {
                     val dht = it.cast(Dht.Message::class.java)
                     details.add(dht.data)
 
@@ -154,21 +154,21 @@ class Crawler(
                     }
                 }
 
-                CrawlerClient.DataType.IDENTIFY -> {
+                CrawlerData.Type.IDENTIFY -> {
                     val id = it.cast(IdentifyOuterClass.Identify::class.java)
                     details.add(id.data)
                 }
 
-                CrawlerClient.DataType.PEER_ID -> {
+                CrawlerData.Type.PEER_ID -> {
                     details.peerId = it.cast(PeerId::class.java).data
                 }
 
-                CrawlerClient.DataType.STATUS -> {
+                CrawlerData.Type.STATUS -> {
                     details.status = it.cast(StatusProtocol.Status::class.java).data
                 }
 
-                CrawlerClient.DataType.PROTOCOLS -> {
-                    details.protocols = it.cast(CrawlerClient.StringList::class.java).data.values
+                CrawlerData.Type.PROTOCOLS -> {
+                    details.protocols = it.cast(CrawlerData.StringList::class.java).data.values
                 }
             }
 

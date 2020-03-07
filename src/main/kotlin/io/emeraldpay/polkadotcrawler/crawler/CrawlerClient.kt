@@ -61,13 +61,13 @@ class CrawlerClient(
         connection?.dispose()
     }
 
-    fun connect(): Flux<Data<*>> {
+    fun connect(): Flux<CrawlerData.Value<*>> {
         log.debug("Connect to $remote")
         val host = getHost()
         val port = remote.getStringComponent(Protocol.TCP)!!.toInt()
 
         try {
-            val results = CompletableFuture<Flux<Data<*>>>()
+            val results = CompletableFuture<Flux<CrawlerData.Value<*>>>()
             val client = TcpClient.create()
                     .host(host)
                     .port(port)
@@ -96,7 +96,7 @@ class CrawlerClient(
 
             val data = Mono.fromCompletionStage(results)
                     .flatMapMany { it }
-                    .onErrorResume(CancellationException::class.java) { Flux.empty<Data<*>>() }
+                    .onErrorResume(CancellationException::class.java) { Flux.empty<CrawlerData.Value<*>>() }
                     .doFinally {
                         connection?.dispose()
                     }
@@ -113,168 +113,6 @@ class CrawlerClient(
         }
 
         return Flux.empty()
-    }
-
-    /**
-     * Request neighbor peers through hDHT request
-     */
-    fun requestDht(mplex: Mplex): Tuple2<
-            Flux<Data<Dht.Message>>,
-            Publisher<ByteBuffer>> {
-        val dht = DhtProtocol()
-        val stream = mplex.newStream(
-                Mono.just(multistream.multistreamHeader("/ipfs/kad/1.0.0"))
-        )
-
-        val headerReceived = CompletableFuture<Boolean>()
-
-        stream.send(
-                Mono.fromCompletionStage(headerReceived).thenMany(dht.start())
-        )
-
-        val onHeaderFound = Mono.just(headerReceived).doOnNext { it.complete(true) }.then()
-
-        val result = Flux.from(stream.inbound)
-                .transform(SizePrefixed.Varint().reader())
-//                        .transform(DebugCommons.traceByteBuf("DHT PACKET"))
-                .transform(
-                        multistream.readProtocol("/ipfs/kad/1.0.0", false, onHeaderFound)
-                )
-                .filter { it.remaining() > 5 } //skip empty responses
-                .take(3) //usually it returns no more than 3 messages
-                .take(Duration.ofSeconds(15))
-                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("DHT")))
-                .retry(3)
-                .map {
-                    dht.parse(it)
-                }
-                .doOnError {
-                    if (it is DataTimeoutException) {
-                        log.debug("Timeout for ${it.name} from $remote")
-                    } else if (it is IOException) {
-                        log.debug("DHT not received. ${it.message}")
-                    } else {
-                        log.warn("DHT not received", it)
-                    }
-                }
-                .onErrorResume { Mono.empty() }
-                .map { Data(DataType.DHT_NODES, it) }
-
-        return Tuples.of(
-                result,
-                stream.outbound()
-        )
-    }
-
-    /**
-     * Request and process full identity from remote
-     */
-    fun requestIdentify(mplex: Mplex): Tuple2<
-            Mono<Data<IdentifyOuterClass.Identify>>,
-            Publisher<ByteBuffer>> {
-        val identify = IdentifyProtocol()
-
-        val stream = mplex.newStream(
-                Mono.just(multistream.multistreamHeader("/ipfs/id/1.0.0"))
-        )
-        val inbound: Publisher<ByteBuffer> = stream.inbound
-
-        val result  = Flux.from(inbound)
-                .transform(SizePrefixed.Varint().reader())
-//                        .transform(DebugCommons.traceByteBuf("ID PACKET"))
-                .transform(multistream.readProtocol("/ipfs/id/1.0.0", false))
-                .map {
-                    identify.parse(it)
-                }
-                .take(1).single()
-                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Identify")))
-                .retry(3)
-                .doOnError {
-                    if (it is DataTimeoutException) {
-                        log.debug("Timeout for ${it.name} from $remote")
-                    } else if (it is IOException) {
-                        log.debug("Identify not received. ${it.message}")
-                    } else {
-                        log.warn("Identity not received", it)
-                    }
-                }
-                .onErrorResume { Mono.empty() }
-                .map { Data(DataType.IDENTIFY, it) }
-
-        return Tuples.of(result, stream.outbound())
-    }
-
-    /**
-     * Read blockchain status from remote
-     */
-    fun requestStatus(mplex: Mplex): Tuple2<
-            Mono<Data<StatusProtocol.Status>>,
-            Publisher<ByteBuffer>> {
-
-        val protocol = "/substrate/ksmcc3/6"
-
-        val stream = mplex.newStream(
-                Mono.just(multistream.multistreamHeader(protocol))
-        )
-        val inbound: Publisher<ByteBuffer> = stream.inbound
-
-        // don't need to send anything, but we keep connection because we expect data
-        stream.send(Flux.concat(Mono.never()))
-
-        val statusProtocol = StatusProtocol()
-
-        val result  = Flux.from(inbound)
-                .transform(SizePrefixed.Varint().reader())
-//                .transform(DebugCommons.traceByteBuf("Status", false))
-                .transform(multistream.readProtocol(protocol, false))
-                .next()
-                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("Status")))
-                .map(statusProtocol::parse)
-                .doOnError {
-                    if (it is DataTimeoutException) {
-                        log.debug("Timeout for ${it.name} from $remote")
-                    } else if (it is IOException) {
-                        log.debug("Status not received. ${it.message}")
-                    } else {
-                        log.warn("Status not received", it)
-                    }
-                }
-                .onErrorResume { Mono.empty() }
-                .map { Data(DataType.STATUS, it) }
-
-        return Tuples.of(result, stream.outbound())
-    }
-
-    fun requestProtocols(mplex: Mplex): Tuple2<
-            Mono<Data<StringList>>,
-            Publisher<ByteBuffer>> {
-
-        val stream = mplex.newStream(
-                Mono.just(multistream.multistreamHeader("ls"))
-        )
-        val inbound: Publisher<ByteBuffer> = stream.inbound
-
-        val result  = Flux.from(inbound)
-                .transform(SizePrefixed.Varint().reader())
-//                .transform(DebugCommons.traceByteBuf("LS", false))
-                .transform(multistream.readProtocol(null, false))
-                .next()
-                .timeout(Duration.ofSeconds(10), Mono.error(DataTimeoutException("LS")))
-                .map(multistream::parseList)
-                .map(::StringList)
-                .doOnError {
-                    if (it is DataTimeoutException) {
-                        log.debug("Timeout for ${it.name} from $remote")
-                    } else if (it is IOException) {
-                        log.debug("LS not received. ${it.message}")
-                    } else {
-                        log.warn("LS not received", it)
-                    }
-                }
-                .onErrorResume { Mono.empty() }
-                .map { Data(DataType.PROTOCOLS, it) }
-
-        return Tuples.of(result, stream.outbound())
     }
 
     /**
@@ -365,17 +203,17 @@ class CrawlerClient(
     /**
      * Continue with established Mplex transport.
      */
-    fun handleMplex(): Pair<Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, CompletableFuture<Publisher<Data<*>>>>  {
-        val processorsData = CompletableFuture<Publisher<Data<*>>>()
+    fun handleMplex(): Pair<Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, CompletableFuture<Publisher<CrawlerData.Value<*>>>>  {
+        val processorsData = CompletableFuture<Publisher<CrawlerData.Value<*>>>()
         val handler = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { mplexInbound ->
             val mplex = Mplex()
             mplex.start(mplexInbound)
             val standardResponses = respondStandardRequests(mplex)
 
-            val identify = requestIdentify(mplex)
-            val dht = requestDht(mplex)
-            val status = requestStatus(mplex)
-            val protocols = requestProtocols(mplex)
+            val identify = RequestIdDetails().requestOne(mplex)
+            val dht = RequestDhtDetails().request(mplex)
+            val status = RequestStatusDetails().requestOne(mplex)
+            val protocols = RequestProtocolsDetails().requestOne(mplex)
 
             processorsData.complete(
                     Flux.merge(
@@ -398,7 +236,7 @@ class CrawlerClient(
     }
 
 
-    fun handle(inbound: NettyInbound, outbound: NettyOutbound, initiator: Boolean): Tuple2<Publisher<Void>, Publisher<Data<*>>> {
+    fun handle(inbound: NettyInbound, outbound: NettyOutbound, initiator: Boolean): Tuple2<Publisher<Void>, Publisher<CrawlerData.Value<*>>> {
 //        outbound.withConnection { conn ->
 //            conn.addHandler(
 //                    io.netty.handler.logging.LoggingHandler("io.netty.util.internal.logging.Slf4JLogger",
@@ -424,7 +262,7 @@ class CrawlerClient(
                 handleConnected(secureTransport, handleMplex.first, initiator)
         ).doOnError { it.printStackTrace() }
 
-        val peerId = secureTransport.getPeerId().map { Data(DataType.PEER_ID, it) }
+        val peerId = secureTransport.getPeerId().map { CrawlerData.Value(CrawlerData.Type.PEER_ID, it) }
         val main: Publisher<Void> = outbound.send(connection.map { Unpooled.wrappedBuffer(it) })
 
         return Tuples.of(main,
@@ -438,30 +276,6 @@ class CrawlerClient(
     //
     // ------------------------
     //
-
-    enum class DataType(val clazz: Class<out Any>) {
-        IDENTIFY(IdentifyOuterClass.Identify::class.java),
-        DHT_NODES(Dht.Message::class.java),
-        PEER_ID(PeerId::class.java),
-        STATUS(StatusProtocol.Status::class.java),
-        PROTOCOLS(StringList::class.java)
-    }
-
-    data class StringList(
-            val values: List<String>
-    )
-
-    class Data<T>(
-            val dataType: DataType,
-            val data: T
-    ) {
-        fun <Z> cast(clazz: Class<Z>): Data<Z> {
-            if (!clazz.isAssignableFrom(this.dataType.clazz)) {
-                throw ClassCastException("Cannot cast ${this.dataType.clazz} to $clazz")
-            }
-            return this as Data<Z>;
-        }
-    }
 
     class DataTimeoutException(val name: String): java.lang.Exception("Timeout for $name")
 
