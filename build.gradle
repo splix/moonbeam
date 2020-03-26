@@ -25,7 +25,7 @@ plugins {
 
 
 group = 'io.emeraldpay.polkadotcrawler'
-version = '0.2-SNAPSHOT'
+version = '0.3-SNAPSHOT'
 
 targetCompatibility = '1.8'
 sourceCompatibility = '1.8'
