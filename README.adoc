@@ -11,7 +11,7 @@ NOTE: The project is in an _early stage_ of development. Configuration, run argu
 - [x] save found nodes to a local file in JSON format
 - [x] log connection details
 - [x] fetch details about remote blockchain
-- [ ] basic log to MySQL
+- [x] basic log to MySQL
 - [ ] log to AWS S3
 - [ ] log to GCP Storage
 - [ ] Prometheus compatible monitoring
@@ -40,12 +40,14 @@ gradle run
 
 NOTE: If you run with Gradle you can pass arguments with `--args`. Ex. `--args="--export.file.targetdir=my_results_dir"`
 
-- `--export.file.targetdir=./log` - directory to save results, `./log` by default
 - `--key=<...>` - private key of the node if available. Otherwise a random Private/Public Key are generated and published
 to the output, which can be used on the next run to keep the same `PeerId` and improve discovery by other peers.
 - `--port=30100` - port to listen for incoming connections. `30100` by default
+- `--export.file.targetdir=./log` - directory to save results, `./log` by default. See <<export-json>>
+- `--export.mysql.enabled=true` to enable export to MySQL. See <<export-mysql>>
 
-== Output format
+[#export-json]
+== JSON Output format
 
 Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
 new line.
@@ -100,8 +102,9 @@ connections, so another node can decide to connect to the bot based on its logic
 While most of the fields are self-explanatory, some of them need extra description. Please see below.
 
 .JSON Format
+[cols="2a,2a,5"]
 |===
-| Field | Sample Value | Description
+| Field | Example Value | Description
 
 | `version`
 | `https://schema.emeraldpay.io/polkabot#v0`
@@ -123,6 +126,77 @@ While most of the fields are self-explanatory, some of them need extra descripti
 
 |===
 
+[#export-mysql]
+=== Export to MySQL
+
+Polkabot can be configured to export nodes to a MySQL table.
+
+.How it works:
+
+- The bot only appends a new information, and if you need to clean up the table, you have to run an external scheduled job to do so.
+- The table is going to have duplicate lines, appended each time the bot hit a peer. Use `SELECT DISTINCT` to get uniq peers.
+- Table name: *nodes*.
+
+.Table definition SQL
+[source, sql]
+----
+CREATE TABLE `nodes` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `found_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `ip` varchar(45) DEFAULT NULL,
+  `peer_id` varchar(200) DEFAULT NULL,
+  `agent_full` varchar(128) DEFAULT NULL,
+  `agent_app` varchar(64) DEFAULT NULL,
+  `agent_version` varchar(64) DEFAULT NULL,
+  `genesis` char(66) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=197 DEFAULT CHARSET=utf8;
+----
+
+.MySQL Table Structure
+[cols="1a,3a,5"]
+|===
+| Column | Example | Description
+
+| `found_at` | `2020-03-27 00:05:58` | Timestamp when the peer was found
+| `ip` | `34.4.25.101` | IP address
+| `peer_id` |  | PeerId
+| `agent_full` | `parity-polkadot/v0.7.28-7f59f2c-x86\_64-linux-gnu (unknown)` | Full agent name
+| `agent_app` | `parity-polkadot` | Type of software
+| `agent_version` | `v0.7.28` | Software version
+| `genesis` | `b0a8d493285c2df73290dfb7e61f870f` `17b41801197a149ca93654499ea3dafe` | Hash of the genesis block
+
+|===
+
+.Run options
+[cols="3a,2a,5a"]
+|===
+| Option | Default value | Description
+
+| `--export.mysql.enabled`
+| `false`
+| Enable/disable export to MySQL
+
+| `--export.mysql.url`
+| `localhost:3306/polkadot`
+| URL to connect. Format `${HOST}:${PORT}/${DATABASE}`
+
+| `--export.mysql.username`
+| `polkadot`
+| Username
+
+| `--export.mysql.password`
+|
+| User password
+|===
+
+.Example:
+----
+docker run -v $(pwd)/results:/results emeraldpay/polkabot \
+   --export.mysql.enabled=true \
+   --export.mysql.url=10.0.2.100:3306/polkadot \
+   --export.mysql.password=123456
+----
 
 == Development
 

@@ -54,6 +54,7 @@ dependencies {
 
     compile "org.springframework:spring-core:$springVersion"
     compile "org.springframework:spring-context:$springVersion"
+    compile "org.springframework:spring-jdbc:$springVersion"
     compile "org.springframework.boot:spring-boot:$springBootVersion"
     compile("org.springframework.boot:spring-boot-starter:$springBootVersion") {
         exclude module: 'spring-boot-starter-logging'
@@ -72,6 +73,8 @@ dependencies {
     compile "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
     compile "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:$jacksonVersion"
     compile "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion"
+    compile 'org.apache.commons:commons-dbcp2:2.7.0'
+    compile 'mysql:mysql-connector-java:8.0.19'
 
     compile "org.slf4j:slf4j-api:$slf4jVersion"
     compile "org.apache.logging.log4j:log4j-slf4j-impl:2.11.1"

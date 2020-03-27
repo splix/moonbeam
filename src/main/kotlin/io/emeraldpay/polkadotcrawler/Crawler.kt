@@ -9,6 +9,7 @@ import io.emeraldpay.polkadotcrawler.discover.Discovered
 import io.emeraldpay.polkadotcrawler.discover.NoRecentChecks
 import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.export.FileJsonExport
+import io.emeraldpay.polkadotcrawler.export.MysqlExport
 import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
 import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
 import io.emeraldpay.polkadotcrawler.processing.FullProcessor
@@ -35,6 +36,7 @@ class Crawler(
         @Autowired private val discovered: Discovered,
         @Autowired private val noRecentChecks: NoRecentChecks,
         @Autowired private val fileJsonExport: FileJsonExport,
+        @Autowired private val mysqlExport: MysqlExport,
         @Autowired private val monitoring: Monitoring,
         @Autowired private val processor: FullProcessor,
         @Value("\${port}") private val port: Int,
@@ -118,12 +120,15 @@ class Crawler(
                 }, 32)
                 .subscribe(connected)
 
-        Flux.from(connected)
+        val result = Flux.from(connected)
                 .subscribeOn(Schedulers.newSingle("connected"))
                 .doOnNext { monitoring.onPeerProcessed(it) }
                 .map(processor)
                 .doOnError { it.printStackTrace() }
-                .subscribe(fileJsonExport)
+                .share()
+
+        result.subscribe(fileJsonExport)
+        result.subscribe(mysqlExport.getInstance())
 
         server()
     }

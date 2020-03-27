@@ -6,12 +6,23 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.ResourceBanner
 import org.springframework.boot.SpringApplication
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.autoconfigure.aop.AopAutoConfiguration
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration
 import org.springframework.context.annotation.Import
 import org.springframework.core.io.ClassPathResource
+import org.springframework.transaction.annotation.EnableTransactionManagement
 import reactor.core.publisher.Hooks
 import java.util.concurrent.CancellationException
 
-@SpringBootApplication(scanBasePackages = [ "io.emeraldpay.polkadotcrawler" ])
+@SpringBootApplication(
+        scanBasePackages = [ "io.emeraldpay.polkadotcrawler" ],
+        // disable automatic spring jdbc configuration
+        exclude = [
+            DataSourceAutoConfiguration::class
+        ]
+)
 @Import(Config::class)
 open class Starter
 
