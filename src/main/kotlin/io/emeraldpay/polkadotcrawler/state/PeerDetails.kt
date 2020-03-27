@@ -10,6 +10,7 @@ import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 import java.lang.StringBuilder
 import java.net.InetAddress
+import java.net.UnknownHostException
 import java.time.Instant
 
 class PeerDetails(
@@ -38,7 +39,12 @@ class PeerDetails(
         listOf(Protocol.IP4, Protocol.IP6, Protocol.DNS4).find { protocol ->
             address.has(protocol)
         }?.let { protocol ->
-            host = InetAddress.getByName(address.getStringComponent(protocol))
+            val addressValue = address.getStringComponent(protocol)
+            try {
+                host = InetAddress.getByName(addressValue)
+            } catch (e: UnknownHostException) {
+                log.debug("Invalid host: $addressValue")
+            }
         }
         if (address.has(Protocol.TCP)) {
             port = address.getStringComponent(Protocol.TCP)?.toIntOrNull()
