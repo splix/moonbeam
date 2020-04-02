@@ -13,7 +13,7 @@ NOTE: The project is in an _early stage_ of development. Configuration, run argu
 - [x] fetch details about remote blockchain
 - [x] basic log to MySQL
 - [x] log to AWS S3
-- [ ] log to GCP Storage
+- [x] log to GCP Storage
 - [ ] Prometheus compatible monitoring
 
 == Run Instructions
@@ -46,6 +46,7 @@ to the output, which can be used on the next run to keep the same `PeerId` and i
 - `--export.file.targetdir=./log` - directory to save results, `./log` by default. See <<export-json>>
 - `--export.mysql.enabled=true` to enable export to MySQL. See <<export-mysql>>
 - `--export.s3.enabled=true` to enable export to AWS S3. See <<export-s3>>
+- `--export.gs.enabled=true` to enable export to Google Storage. See <<export-gcp-storage>>
 
 [#export-json]
 == Export to JSON file
@@ -259,6 +260,42 @@ docker run -v $(pwd)/results:/results emeraldpay/polkabot \
   --export.s3.path=polkadot/
 ----
 
+[#export-gcp-storage]
+=== Export to GCP Storage
+
+Setup Polkabot to upload logs to the Google Cloud Storage bucket. Please note that the files are uploaded once they are
+finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <<export-json>>
+
+.Run options
+[cols="3a,2a,5a"]
+|===
+| Option | Default value | Description
+
+| `--export.gs.enabled`
+| `false`
+| Enable/disable export to GCP Storage
+
+| `--export.gs.bucket`
+|
+| (required) GCP Bucket name to upload files
+
+| `--export.gs.path`
+|
+| (optional) Path prefix, i.e. a directory. Example: `--export.gs.path=polkadot/` (note trailing slash)
+
+| `--export.gs.credentials`
+|
+| (optional) Path to JSON file with credentials
+|===
+
+.Example:
+----
+docker run -v $(pwd)/results:/results -v $(pwd)/gcloud.json:/etc/polkabot/gcloud.json emeraldpay/polkabot \
+  --export.gs.enabled=true \
+  --export.gs.credentials=/etc/polkabot/gcloud.json \
+  --export.gs.bucket=my-crawler-bucket \
+  --export.gs.path=polkadot/
+----
 
 == Development
 

@@ -42,16 +42,16 @@ class S3Export(
                 .withCredentials(AWSStaticCredentialsProvider(credentials))
                 .build()
 
-        val exported = Exporter(
+        val exporter = Exporter(
                 s3client,
                 env.getProperty("export.s3.bucket")!!,
                 env.getProperty("export.s3.path") ?: ""
         )
 
-        log.info("Export finished log file to AWS S3 bucket: ${exported.bucket} at ${region.getName()}")
+        log.info("Export finished log file to AWS S3 bucket: ${exporter.bucket} at ${region.getName()}")
 
         filePostprocessing.subscribe()
-                .subscribe(exported)
+                .subscribe(exporter)
     }
 
 
