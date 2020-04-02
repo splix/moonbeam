@@ -15,12 +15,6 @@ class FilePostprocessing {
 
     private val files = TopicProcessor.create<File>()
 
-    init {
-        subscribe().subscribe { file ->
-            log.info("File ${file.absolutePath} is in post processing")
-        }
-    }
-
     fun submit(file: File) {
         files.onNext(file)
     }

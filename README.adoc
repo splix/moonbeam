@@ -12,7 +12,7 @@ NOTE: The project is in an _early stage_ of development. Configuration, run argu
 - [x] log connection details
 - [x] fetch details about remote blockchain
 - [x] basic log to MySQL
-- [ ] log to AWS S3
+- [x] log to AWS S3
 - [ ] log to GCP Storage
 - [ ] Prometheus compatible monitoring
 
@@ -38,16 +38,17 @@ gradle run
 
 === Run Options
 
-NOTE: If you run with Gradle you can pass arguments with `--args`. Ex. `--args="--export.file.targetdir=my_results_dir"`
+NOTE: If you run with Gradle you should pass the arguments with `--args`. Ex.: `--args="--export.file.targetdir=my_results_dir"`
 
 - `--key=<...>` - private key of the node if available. Otherwise a random Private/Public Key are generated and published
 to the output, which can be used on the next run to keep the same `PeerId` and improve discovery by other peers.
 - `--port=30100` - port to listen for incoming connections. `30100` by default
 - `--export.file.targetdir=./log` - directory to save results, `./log` by default. See <<export-json>>
 - `--export.mysql.enabled=true` to enable export to MySQL. See <<export-mysql>>
+- `--export.s3.enabled=true` to enable export to AWS S3. See <<export-s3>>
 
 [#export-json]
-== JSON Output
+== Export to JSON file
 
 Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
 new line.
@@ -213,6 +214,51 @@ docker run -v $(pwd)/results:/results emeraldpay/polkabot \
    --export.mysql.url=10.0.2.100:3306/polkadot \
    --export.mysql.password=123456
 ----
+
+[#export-s3]
+=== Export to AWS S3
+
+Setup Polkabot to upload logs to the Amazon AWS S3 bucket. Please note that the files are uploaded once they are
+finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <<export-json>>
+
+.Run options
+[cols="3a,2a,5a"]
+|===
+| Option | Default value | Description
+
+| `--export.s3.enabled`
+| `false`
+| Enable/disable export to AWS S3
+
+| `--export.s3.region`
+| `us-east-1`
+| (required) AWS Region
+
+| `--export.s3.bucket`
+|
+| (required) S3 Bucket to upload files
+
+| `--export.s3.path`
+|
+| (optional) Path prefix, i.e. a directory. Example: `--export.s3.path=polkadot/` (note trailing slash)
+
+| `--export.s3.accesskey` +
+`--export.s3.secretkey`
+|
+| (required) AWS credentials
+|===
+
+.Example:
+----
+docker run -v $(pwd)/results:/results emeraldpay/polkabot \
+  --export.s3.enabled=true \
+  --export.s3.accesskey=AKIJF5KA05L1JAF \
+  --export.s3.secretkey=i85aGTgtzh39t9+h8gka9bkbAEW1lgIYVC811Aoe \
+  --export.s3.bucket=my-crawler-bucket \
+  --export.s3.region=us-east-1 \
+  --export.s3.path=polkadot/
+----
+
 
 == Development
 
