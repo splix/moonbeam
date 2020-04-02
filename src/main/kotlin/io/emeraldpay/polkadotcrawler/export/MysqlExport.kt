@@ -29,7 +29,7 @@ class MysqlExport(
         private val log = LoggerFactory.getLogger(MysqlExport::class.java)
     }
 
-    private var instance: Subscriber<ProcessedPeerDetails> = EmptySubscriber<ProcessedPeerDetails>()
+    private var instance: Subscriber<ProcessedPeerDetails>? = null
 
     @PostConstruct
     fun start() {
@@ -139,7 +139,7 @@ class MysqlExport(
         }
     }
 
-    fun getInstance(): Subscriber<ProcessedPeerDetails> {
+    fun getInstance(): Subscriber<ProcessedPeerDetails>? {
         return instance
     }
 

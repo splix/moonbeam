@@ -124,11 +124,19 @@ class Crawler(
                 .subscribeOn(Schedulers.newSingle("connected"))
                 .doOnNext { monitoring.onPeerProcessed(it) }
                 .map(processor)
-                .doOnError { it.printStackTrace() }
-                .share()
+                .onErrorContinue { t, _ -> log.error("Failed to process peer details", t) }
+                .publish()
+                .autoConnect()
 
-        result.subscribe(fileJsonExport)
-        result.subscribe(mysqlExport.getInstance())
+        Flux.from(result)
+                .subscribeOn(Schedulers.newSingle("export-file"))
+                .subscribe(fileJsonExport)
+
+        mysqlExport.getInstance()?.let { export ->
+            Flux.from(result)
+                    .subscribeOn(Schedulers.newSingle("export-mysql"))
+                    .subscribe(export)
+        }
 
         server()
     }

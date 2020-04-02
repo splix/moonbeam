@@ -47,7 +47,7 @@ to the output, which can be used on the next run to keep the same `PeerId` and i
 - `--export.mysql.enabled=true` to enable export to MySQL. See <<export-mysql>>
 
 [#export-json]
-== JSON Output format
+== JSON Output
 
 Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
 new line.
@@ -123,6 +123,22 @@ While most of the fields are self-explanatory, some of them need extra descripti
 | `protocols`
 |
 | List of protocols (in terms of libp2p) supported by the remote peer
+
+|===
+
+.Run options
+[cols="3a,2a,5a"]
+|===
+| Option | Default value | Description
+
+| `--export.file.targetdir`
+| `./log`
+| Path to store log files
+
+| `--export.file.timelimit`
+| `60m`
+| Max time period to log into a single file. I.e., by default a new log file will be created every 60 minutes.
+Value range: `1m` to `24h`
 
 |===
 
