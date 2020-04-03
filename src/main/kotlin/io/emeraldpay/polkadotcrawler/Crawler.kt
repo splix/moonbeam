@@ -11,6 +11,7 @@ import io.emeraldpay.polkadotcrawler.discover.PublicPeersOnly
 import io.emeraldpay.polkadotcrawler.export.FileJsonExport
 import io.emeraldpay.polkadotcrawler.export.MysqlExport
 import io.emeraldpay.polkadotcrawler.monitoring.Monitoring
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric
 import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
 import io.emeraldpay.polkadotcrawler.processing.FullProcessor
 import io.emeraldpay.polkadotcrawler.proto.Dht
@@ -194,6 +195,7 @@ class Crawler(
         try {
             var crawler: CrawlerClient? = null
             val result = Mono.just(address)
+                    .doOnNext { PrometheusMetric.reportConnection(PrometheusMetric.Dir.OUT) }
                     .map { CrawlerClient(it, agent, keys) }
                     .doOnNext { crawler = it }
                     .flatMapMany { it.connect() }
@@ -209,6 +211,7 @@ class Crawler(
                         if (!it.filled()) {
                             throw NotLoadedException(it)
                         }
+                        PrometheusMetric.reportConnectionOk(PrometheusMetric.Dir.OUT)
                         it
                     }
             return result
@@ -224,6 +227,7 @@ class Crawler(
                 .host("0.0.0.0")
                 .port(port)
                 .handle { inbound, outbound ->
+                    PrometheusMetric.reportConnection(PrometheusMetric.Dir.IN)
                     var remote: Multiaddr? = null
                     inbound.withConnection {
                         val remoteAddress = it.address().address.hostAddress
@@ -242,6 +246,7 @@ class Crawler(
                                 .take(Duration.ofSeconds(60))
                                 .reduce(PeerDetails(address, true), readFromPeer(address))
                                 .filter { it.filled() }
+                                .doOnNext { PrometheusMetric.reportConnectionOk(PrometheusMetric.Dir.IN) }
                                 .subscribe(connected)
                         result.t1
                     }

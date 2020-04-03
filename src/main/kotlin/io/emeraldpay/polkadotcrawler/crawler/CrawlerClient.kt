@@ -1,17 +1,17 @@
 package io.emeraldpay.polkadotcrawler.crawler
 
 import identify.pb.IdentifyOuterClass
-import io.emeraldpay.polkadotcrawler.DebugCommons
 import io.emeraldpay.polkadotcrawler.libp2p.*
-import io.emeraldpay.polkadotcrawler.polkadot.StatusProtocol
-import io.emeraldpay.polkadotcrawler.proto.Dht
-import io.libp2p.core.PeerId
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric.Companion.reportConnError
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric.Companion.reportProtocolError
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric.Companion.reportConnBytes
 import io.libp2p.core.crypto.PrivKey
 import io.libp2p.core.crypto.PubKey
 import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import io.netty.buffer.Unpooled
-import io.netty.channel.ConnectTimeoutException
+import io.netty.channel.*
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -26,7 +26,6 @@ import reactor.util.function.Tuples
 import java.io.IOException
 import java.net.UnknownHostException
 import java.nio.ByteBuffer
-import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.function.Function
@@ -44,7 +43,7 @@ class CrawlerClient(
     private val multistream = Multistream()
 
     private var connection: Connection? = null
-
+    private var proDirLabel = PrometheusMetric.Dir.IN
 
     fun getHost(): String {
         if (remote.has(Protocol.IP4)) {
@@ -76,8 +75,10 @@ class CrawlerClient(
                         results.complete(Flux.from(x.t2))
                         Flux.from(x.t1).onErrorResume { t ->
                             if (t is IOException) {
+                                reportConnError(PrometheusMetric.ConnError.IO)
                                 log.debug("Failed to connect to $remote")
                             } else {
+                                reportConnError(PrometheusMetric.ConnError.INTERNAL)
                                 log.warn("Handler failed to start", t)
                             }
                             if (!results.isDone) {
@@ -103,12 +104,16 @@ class CrawlerClient(
 
             return client.thenMany(data)
         } catch (e: ConnectTimeoutException) {
+            reportConnError(PrometheusMetric.ConnError.TIMEOUT)
             log.debug("Timeout to connect to $remote")
         } catch (e: IllegalStateException) {
+            reportConnError(PrometheusMetric.ConnError.INTERNAL)
             log.debug("Failed to connect to $remote. Message: ${e.message}")
         } catch (e: UnknownHostException) {
+            reportConnError(PrometheusMetric.ConnError.IO)
             log.warn("Invalid remote address: $remote")
         } catch (e: Throwable) {
+            reportConnError(PrometheusMetric.ConnError.INTERNAL)
             log.error("Unresolved exception ${e.javaClass.name}: ${e.message}")
         }
 
@@ -151,6 +156,7 @@ class CrawlerClient(
                                     )))
                                     return@switchOnFirst Flux.concat(start, protocols)
                                 } else {
+                                    reportProtocolError(proDirLabel, PrometheusMetric.ProtocolError.MPLEX)
                                     log.debug("Request to an unsupported protocol [$msg] from $remote")
                                     return@switchOnFirst Mono.just(multistream.decline())
                                 }
@@ -183,6 +189,7 @@ class CrawlerClient(
                     .transform(SizePrefixed.TwoBytes().reader())
                     .transform(secureTransport.decoder())
                     .onErrorContinue { t, o ->
+                        reportProtocolError(proDirLabel,PrometheusMetric.ProtocolError.NOISE)
                         log.warn("Packet decryption failed", t)
                     }
 //                    .transform(DebugCommons.traceByteBuf("decrypted", false))
@@ -196,17 +203,20 @@ class CrawlerClient(
 //                        .transform(DebugCommons.traceByteBuf("encrypt", true))
                         .transform(secureTransport.encoder())
                         .transform(SizePrefixed.TwoBytes().writer())
-            ).doOnError { it.printStackTrace() }
+            ).doOnError { t ->
+                reportConnError(PrometheusMetric.ConnError.INTERNAL)
+                log.debug("Connection failed: ${t.message}")
+            }
         }
     }
 
     /**
      * Continue with established Mplex transport.
      */
-    fun handleMplex(): Pair<Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, CompletableFuture<Publisher<CrawlerData.Value<*>>>>  {
+    fun handleMplex(initiator: Boolean): Pair<Function<Flux<ByteBuffer>, Flux<ByteBuffer>>, CompletableFuture<Publisher<CrawlerData.Value<*>>>>  {
         val processorsData = CompletableFuture<Publisher<CrawlerData.Value<*>>>()
         val handler = Function<Flux<ByteBuffer>, Flux<ByteBuffer>> { mplexInbound ->
-            val mplex = Mplex()
+            val mplex = Mplex(initiator)
             mplex.start(mplexInbound)
             val standardResponses = respondStandardRequests(mplex)
 
@@ -237,6 +247,7 @@ class CrawlerClient(
 
 
     fun handle(inbound: NettyInbound, outbound: NettyOutbound, initiator: Boolean): Tuple2<Publisher<Void>, Publisher<CrawlerData.Value<*>>> {
+        proDirLabel = if (initiator) PrometheusMetric.Dir.OUT else PrometheusMetric.Dir.IN
 //        outbound.withConnection { conn ->
 //            conn.addHandler(
 //                    io.netty.handler.logging.LoggingHandler("io.netty.util.internal.logging.Slf4JLogger",
@@ -250,20 +261,32 @@ class CrawlerClient(
                 .map {
                     val copy = ByteBuffer.allocate(it.readableBytes())
                     it.readBytes(copy)
-//                    it.release()
+                    // it.release()
                     copy.flip()
                 }
+                .doOnNext {
+                    reportConnBytes(proDirLabel, PrometheusMetric.Dir.IN, it.remaining())
+                }
 
-        val handleMplex = handleMplex()
+        val handleMplex = handleMplex(initiator)
 
         val connection = multistream.withProtocol(
                 initiator,
                 inboundBytes, "/noise/ix/25519/chachapoly/sha256/0.1.0",
                 handleConnected(secureTransport, handleMplex.first, initiator)
-        ).doOnError { it.printStackTrace() }
+        ).doOnError { t ->
+            reportProtocolError(proDirLabel, PrometheusMetric.ProtocolError.NOISE)
+            log.debug("Failed to establish Noise: ${t.message}")
+        }
 
         val peerId = secureTransport.getPeerId().map { CrawlerData.Value(CrawlerData.Type.PEER_ID, it) }
-        val main: Publisher<Void> = outbound.send(connection.map { Unpooled.wrappedBuffer(it) })
+        val main: Publisher<Void> = outbound.send(
+                connection
+                        .doOnNext {
+                            reportConnBytes(proDirLabel, PrometheusMetric.Dir.OUT, it.remaining())
+                        }
+                        .map { Unpooled.wrappedBuffer(it) }
+        )
 
         return Tuples.of(main,
                 Flux.merge(

@@ -1,5 +1,6 @@
 package io.emeraldpay.polkadotcrawler.discover
 
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric
 import io.libp2p.core.multiformats.Multiaddr
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
@@ -20,6 +21,7 @@ class Discovered {
 
     fun submit(address: Multiaddr) {
         log.debug("Address to check $address")
+        PrometheusMetric.reportDiscovered()
         bus.onNext(address)
     }
 

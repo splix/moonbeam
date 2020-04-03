@@ -25,6 +25,12 @@ class Monitoring: Runnable {
 
     override fun run() {
         Flux.from(processed)
+                .doOnNext {
+                    PrometheusMetric.reportPeers(it.peers)
+                    it.disconnectedAt?.let { dt ->
+                        PrometheusMetric.reportConnectionTime(it.connectedAt, dt)
+                    }
+                }
                 .window(Duration.ofSeconds(60))
                 .flatMap { f ->
                     f.count()

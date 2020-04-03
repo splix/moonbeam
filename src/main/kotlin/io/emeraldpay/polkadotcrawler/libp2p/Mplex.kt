@@ -2,6 +2,7 @@ package io.emeraldpay.polkadotcrawler.libp2p
 
 import io.emeraldpay.polkadotcrawler.ByteBufferCommons
 import io.emeraldpay.polkadotcrawler.DebugCommons
+import io.emeraldpay.polkadotcrawler.monitoring.PrometheusMetric
 import org.reactivestreams.Publisher
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory
@@ -13,7 +14,7 @@ import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
-class Mplex: AutoCloseable {
+class Mplex(val initiator: Boolean): AutoCloseable {
 
     companion object {
         private val log = LoggerFactory.getLogger(Mplex::class.java)
@@ -23,6 +24,7 @@ class Mplex: AutoCloseable {
 
     private val seq = AtomicLong(1000)
     private lateinit var input: Flux<Message>
+    private val direction = if (initiator) PrometheusMetric.Dir.OUT else PrometheusMetric.Dir.IN
 
     fun start(input: Flux<ByteBuffer>) {
         this.input = input
@@ -48,6 +50,7 @@ class Mplex: AutoCloseable {
                 log.debug("Invalid message. ${e.message}")
             }
         }
+        PrometheusMetric.reportMessage(direction, PrometheusMetric.Dir.IN, result.size)
         return result
     }
 
@@ -65,7 +68,7 @@ class Mplex: AutoCloseable {
         val id = seq.incrementAndGet()
         val stream: Publisher<ByteBuffer> = getMessages(input, id, Flag.MessageReceiver)
         val msg = Message(Header(Flag.NewStream, id), ByteBuffer.wrap("stream $id".toByteArray()))
-        return MplexStream(id, true, stream)
+        return MplexStream(id, direction, true, stream)
                 .sendMessage(Mono.just(msg))
                 .send(start)
     }
@@ -81,7 +84,7 @@ class Mplex: AutoCloseable {
                 .map { init ->
                     val id = init.header.id
                     val inbound: Publisher<ByteBuffer> = getMessages(f, id, Flag.MessageInitiator)
-                    val stream = MplexStream(id, false, inbound)
+                    val stream = MplexStream(id, direction, false, inbound)
                     return@map handler.handle(stream)
                 }
         return result
@@ -173,7 +176,9 @@ class Mplex: AutoCloseable {
         fun handle(stream: MplexStream): T
     }
 
-    class MplexStream(private val streamId: Long, private val initiator: Boolean,
+    class MplexStream(private val streamId: Long,
+                      private val direction: PrometheusMetric.Dir,
+                      private val initiator: Boolean,
                       val inbound: Publisher<ByteBuffer>) {
 
         private var closed = false
@@ -200,6 +205,9 @@ class Mplex: AutoCloseable {
             closed = true
             return Flux.concat(messages, close)
 //                    .doOnNext { msg -> DebugCommons.trace("MPLEX ${msg.header.flag} ${streamId}", msg.data, true) }
+                    .doOnNext {
+                        PrometheusMetric.reportMessage(direction, PrometheusMetric.Dir.OUT, 1)
+                    }
                     .map { it.encode() }
         }
 

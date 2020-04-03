@@ -79,6 +79,10 @@ dependencies {
     compile 'com.amazonaws:aws-java-sdk:1.11.756'
     compile 'com.google.cloud:google-cloud-storage:1.106.0'
 
+    compile "io.prometheus:simpleclient:$prometheusVersion"
+    compile "io.prometheus:simpleclient_hotspot:$prometheusVersion"
+    compile "io.prometheus:simpleclient_httpserver:$prometheusVersion"
+
     compile "org.slf4j:slf4j-api:$slf4jVersion"
     compile "org.apache.logging.log4j:log4j-slf4j-impl:2.11.1"
     compile "org.slf4j:jul-to-slf4j:$slf4jVersion"

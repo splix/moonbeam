@@ -6,15 +6,15 @@ details about the node (software version, etc) and its peers to continue scan.
 NOTE: The project is in an _early stage_ of development. Configuration, run arguments and output format may be changed
       without backward compatibility.
 
-.Features roadmap
-- [x] parse node details and extract info about software
-- [x] save found nodes to a local file in JSON format
-- [x] log connection details
-- [x] fetch details about remote blockchain
-- [x] basic log to MySQL
-- [x] log to AWS S3
-- [x] log to GCP Storage
-- [ ] Prometheus compatible monitoring
+.Features:
+- Works on the protocol (libp2p/substrate/polkadot) level, emulates behaviour of a node
+- Extracts node details, user software, and synchronized blockchain details
+- Exports found nodes to
+** a local file in JSON format
+** MySQL table
+** AWS S3
+** GCP Storage
+- Provides Prometheus compatible monitoring
 
 == Run Instructions
 
@@ -27,7 +27,7 @@ fully processed peers to the console.
 docker run -v $(pwd)/results:/results emeraldpay/polkabot
 ----
 
-=== Using Gradle
+=== Using Gradle (from sources)
 
 Gradle could be installed from the website https://gradle.org/, or through SDKMAN https://sdkman.io/
 
@@ -48,8 +48,10 @@ to the output, which can be used on the next run to keep the same `PeerId` and i
 - `--export.s3.enabled=true` to enable export to AWS S3. See <<export-s3>>
 - `--export.gs.enabled=true` to enable export to Google Storage. See <<export-gcp-storage>>
 
+== Export data
+
 [#export-json]
-== Export to JSON file
+=== Export to JSON file
 
 Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
 new line.
@@ -296,6 +298,109 @@ docker run -v $(pwd)/results:/results -v $(pwd)/gcloud.json:/etc/polkabot/gcloud
   --export.gs.bucket=my-crawler-bucket \
   --export.gs.path=polkadot/
 ----
+
+== Monitoring
+
+=== Monitor with Prometheus
+
+Application exports Prometheus compatible status at http://127.0.0.1:1234
+
+.Run options
+[cols="3a,2a,5a"]
+|===
+| Option | Default value | Description
+
+| `--prometheus.host`
+| `127.0.0.1`
+| Host to bind Prometheus exporter
+
+| `--prometheus.port`
+| `1234`
+| Port to bind Prometheus exporter
+|===
+
+
+.Exported metrics
+[cols="2a,2a,2a,5a"]
+|===
+| Name | Labels | Type | Description
+
+| `polkabot_transfer_bytes_total`
+| `dir_conn` + `dir_trans`
+| Counter
+| Total Bytes transferred by the crawler.
+
+| `polkabot_msgs_total`
+| `dir_conn` + `dir_trans`
+| Counter
+| Total messages transferred
+
+| `polkabot_connection_errors_total`
+| `conn_err_type`
+| Counter
+| Connection errors, i.e. timeout, host inaccessible, etc
+
+| `polkabot_protocol_errors_total`
+| `dir` + `proto_level`
+| Counter
+| Error specific for the libp2p or Polkadot protocol
+
+| `polkabot_discover_total`
+|
+| Counter
+| Discovered addresses
+
+| `polkabot_connect_total`
+| `dir`
+| Counter
+| Connections to peers
+
+| `polkabot_connect_ok_total`
+| `dir`
+| Counter
+| Successfully finished connections to peers
+
+| `polkabot_peers_reported_total`
+|
+| Histogram
+| How many neighbour peers were reported by a connection
+
+| `polkabot_connection_time_seconds`
+|
+| Summary
+| Time spent on a connection. With the following quantiles: 90% (+/- 1%), 95% (+/- 0.5%), 99% (+/- 0.1%)
+
+
+|===
+
+.Labels
+[cols="2a,2a,5a"]
+|===
+| Label | Options | Description
+
+| `dir`
+| `in`, `out`
+| Direction of the connection, i.e. `out` when bot connects to another
+peer, and `in` when processing an incoming connection.
+
+| `dir_trans`
+| `in`, `out`
+| Direction of the bytes transferred, i.e. inside a connection.
+
+| `conn_err_type`
+| `timeout`, `io`, `internal`
+| Type of a connection error
+
+| `proto_level`
+| `mplex`, `noise`
+| Level on which an error happened.
+
+|===
+
+
+In addition to the metrics above the application exports JVM metrics (such as memory use, threads, etc),
+and process (file descriptors, etc) metrics.
+All of those metrics are available under `jvm_` namespace, or under `process_`.
 
 == Development
 
