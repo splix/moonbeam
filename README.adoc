@@ -34,11 +34,9 @@ docker run -v $(pwd)/results:/results emeraldpay/polkabot
 
 === Using Gradle (from sources)
 
-Gradle could be installed from the website https://gradle.org/, or through SDKMAN https://sdkman.io/
-
 .Run (and build) with command:
 ----
-gradle run
+./gradlew run
 ----
 
 === Run Options
@@ -432,6 +430,9 @@ All of those metrics are available under `jvm_` namespace, or under `process_`.
   or misuses parts of the protocols to get job done.
 
 === Build Instructions
+
+To build the source code please install Gradle from the website https://gradle.org/, or through SDKMAN https://sdkman.io/
+
 
 .Local build
 ----
