@@ -64,11 +64,11 @@ reconnects to peers, to check for availability and updates. Another reason is th
 connections, so another node can decide to connect to the bot based on its logic.
 
 .Example:
-[source, json, subs="attributes+"]
+[source, json]
 ----
 {
-  "version":"https://schema.emeraldpay.io/polkabot", <1>
-  "timestamp":"2020-03-06T05:07:42.280046Z", <2>
+  "version":"https://schema.emeraldpay.io/polkabot",
+  "timestamp":"2020-03-06T05:07:42.280046Z",
   "peerId":"12D3KooWF5pLe2Vvj41GR3B77mwmp5afAQviMDiLYytbS36VSD2o",
   "agent":{
     "software":"parity-polkadot",
@@ -86,7 +86,7 @@ connections, so another node can decide to connect to the bot based on its logic
     "type":"IP"
   },
   "connection":{
-    "connectionType":"OUT", <3>
+    "connectionType":"OUT",
     "connectedAt":"2020-03-06T05:07:27.276719Z",
     "disconnectedAt":"2020-03-06T05:07:42.279986Z"
   },
@@ -95,7 +95,7 @@ connections, so another node can decide to connect to the bot based on its logic
     "bestHash":"58e4a0b11edabdbee58c9f5aa430b9b7a7ce344562619b3fb26e2c814d6829aa",
     "genesis":"b0a8d493285c2df73290dfb7e61f870f17b41801197a149ca93654499ea3dafe"
   },
-  "protocols":{ <4>
+  "protocols":{
     "versions":[
       {"id":"/substrate/ksmcc3","versions":["6","5","4","3"]},
       {"id":"/ipfs/ping","versions":["1.0.0"]},
@@ -105,12 +105,33 @@ connections, so another node can decide to connect to the bot based on its logic
   }
 }
 ----
-<1> Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
+
+While most of the fields are self-explanatory, some of them need extra description. Please see below.
+
+.JSON Format
+[cols="2a,2a,5"]
+|===
+| Field | Example Value | Description
+
+| `version`
+| `https://schema.emeraldpay.io/polkabot`
+| Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
 moved or renamed) - it gets a new unique id. Please note that at this stage of the development, the schema is not yet
 finalized.
-<2> The timestamp when log item was written. Please note it can be different from connection time.
-<3> `IN` or `OUT`, depending on the source of the connection. `IN` means that the remote node initiated connection to the bot.
-<4> List of protocols (in terms of libp2p) supported by the remote peer.
+
+| `timestamp`
+| `2020-03-06T05:07:42.280046Z`
+| The timestamp when log item was written. Please note it can be different from connection time.
+
+| `connection.connectionType`
+| `OUT`
+| `IN` or `OUT`, depending on the source of the connection. `IN` means that the remote node initiated connection to the bot.
+
+| `protocols`
+|
+| List of protocols (in terms of the libp2p) supported by the remote peer
+
+|===
 
 .Run options for JSON export
 [cols="3a,2a,5a"]
