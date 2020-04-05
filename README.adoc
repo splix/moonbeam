@@ -64,11 +64,11 @@ reconnects to peers, to check for availability and updates. Another reason is th
 connections, so another node can decide to connect to the bot based on its logic.
 
 .Example:
-[source, json]
+[source, json, subs="attributes+"]
 ----
 {
-  "version":"https://schema.emeraldpay.io/polkabot#v0",
-  "timestamp":"2020-03-06T05:07:42.280046Z",
+  "version":"https://schema.emeraldpay.io/polkabot", <1>
+  "timestamp":"2020-03-06T05:07:42.280046Z", <2>
   "peerId":"12D3KooWF5pLe2Vvj41GR3B77mwmp5afAQviMDiLYytbS36VSD2o",
   "agent":{
     "software":"parity-polkadot",
@@ -76,7 +76,7 @@ connections, so another node can decide to connect to the bot based on its logic
     "commit":"3738158",
     "platformFull":"x86_64-linux-gnu",
     "platform":"linux",
-    "fullName":"parity-polkadot/v0.7.20-3738158-x86_64-linux-gnu (unknown)"
+    "full":"parity-polkadot/v0.7.20-3738158-x86_64-linux-gnu (unknown)"
   },
   "host":{
     "address":"/ip4/18.196.25.132/tcp/30333",
@@ -86,7 +86,7 @@ connections, so another node can decide to connect to the bot based on its logic
     "type":"IP"
   },
   "connection":{
-    "connectionType":"OUT",
+    "connectionType":"OUT", <3>
     "connectedAt":"2020-03-06T05:07:27.276719Z",
     "disconnectedAt":"2020-03-06T05:07:42.279986Z"
   },
@@ -95,7 +95,7 @@ connections, so another node can decide to connect to the bot based on its logic
     "bestHash":"58e4a0b11edabdbee58c9f5aa430b9b7a7ce344562619b3fb26e2c814d6829aa",
     "genesis":"b0a8d493285c2df73290dfb7e61f870f17b41801197a149ca93654499ea3dafe"
   },
-  "protocols":{
+  "protocols":{ <4>
     "versions":[
       {"id":"/substrate/ksmcc3","versions":["6","5","4","3"]},
       {"id":"/ipfs/ping","versions":["1.0.0"]},
@@ -105,35 +105,14 @@ connections, so another node can decide to connect to the bot based on its logic
   }
 }
 ----
+<1> Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
+moved or renamed) - it gets a new unique id. Please note that at this stage of the development, the schema is not yet
+finalized.
+<2> The timestamp when log item was written. Please note it can be different from connection time.
+<3> `IN` or `OUT`, depending on the source of the connection. `IN` means that the remote node initiated connection to the bot.
+<4> List of protocols (in terms of libp2p) supported by the remote peer.
 
-While most of the fields are self-explanatory, some of them need extra description. Please see below.
-
-.JSON Format
-[cols="2a,2a,5"]
-|===
-| Field | Example Value | Description
-
-| `version`
-| `https://schema.emeraldpay.io/polkabot#v0`
-| Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
-  moved or renamed) - it gets a new unique id. Please note that at this stage of the development, the schema is not yet
-  finalized. Therefore it's just `v0` at this moment
-
-| `timestamp`
-| `2020-03-06T05:07:42.280046Z`
-| The timestamp when log item was written. Please note it can be different from connection time.
-
-| `connection.connectionType`
-| `OUT`
-| `IN` or `OUT`, depending on the source of the connection. `IN` means that the remote node initiated connection to the bot.
-
-| `protocols`
-|
-| List of protocols (in terms of libp2p) supported by the remote peer
-
-|===
-
-.Run options
+.Run options for JSON export
 [cols="3a,2a,5a"]
 |===
 | Option | Default value | Description
@@ -146,7 +125,6 @@ While most of the fields are self-explanatory, some of them need extra descripti
 | `60m`
 | Max time period to log into a single file. I.e., by default a new log file will be created every 60 minutes.
 Value range: `1m` to `24h`
-
 |===
 
 [#export-mysql]

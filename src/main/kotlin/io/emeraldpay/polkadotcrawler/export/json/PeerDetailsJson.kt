@@ -1,8 +1,8 @@
 package io.emeraldpay.polkadotcrawler.export.json
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
-import io.emeraldpay.polkadotcrawler.state.PeerDetails
-import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
+import io.emeraldpay.polkadotcrawler.state.*
+import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import org.slf4j.LoggerFactory
 import java.net.InetAddress
@@ -12,7 +12,7 @@ import java.time.Instant
  * JSON representation of Peer Details
  */
 @JsonPropertyOrder(value = ["version", "timestamp"])
-class PeerDetailsJson(timestamp: Instant): ProcessedPeerDetails(timestamp) {
+class PeerDetailsJson(val timestamp: Instant) {
 
     companion object {
         private val log = LoggerFactory.getLogger(PeerDetailsJson::class.java)
@@ -29,6 +29,12 @@ class PeerDetailsJson(timestamp: Instant): ProcessedPeerDetails(timestamp) {
         }
     }
 
-    val version: String = "https://schema.emeraldpay.io/polkabot#v0"
+    val version: String = "https://schema.emeraldpay.io/polkabot"
 
+    var peerId: String? = null
+    var agent: Agent? = null
+    var host: ProcessedPeerDetails.Host? = null
+    var connection: ConnectionDetails? = null
+    var blockchain: Blockchain? = null
+    var protocols: Protocols? = null
 }

@@ -19,7 +19,7 @@ class FullProcessor(): Function<PeerDetails, ProcessedPeerDetails> {
     private val agentParser = AgentParser()
 
     override fun apply(peer: PeerDetails): ProcessedPeerDetails {
-        val result = ProcessedPeerDetails()
+        val result = ProcessedPeerDetails(peer.address)
 
         result.peerId = peer.peerId?.toString()
         //if peerid wasn't set by some reason try to extract from address

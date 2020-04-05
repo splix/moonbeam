@@ -1,10 +1,12 @@
 package io.emeraldpay.polkadotcrawler.state
 
+import io.libp2p.core.multiformats.Multiaddr
 import io.libp2p.core.multiformats.Protocol
 import java.net.InetAddress
 import java.time.Instant
 
 open class ProcessedPeerDetails(
+        val address: Multiaddr,
         val timestamp: Instant = Instant.now()
 ) {
 

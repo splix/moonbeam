@@ -2,7 +2,6 @@ package io.emeraldpay.polkadotcrawler.export
 
 import io.emeraldpay.polkadotcrawler.state.ProcessedPeerDetails
 import org.apache.commons.dbcp2.BasicDataSource
-import org.apache.commons.lang3.StringUtils
 import org.reactivestreams.Subscriber
 import org.reactivestreams.Subscription
 import org.slf4j.LoggerFactory
@@ -128,7 +127,7 @@ class MysqlExport(
                     "ip" to value.host?.ip,
                     "found_at" to Timestamp.from(value.timestamp),
                     "peer_id" to value.peerId,
-                    "agent_full" to value.agent?.fullName,
+                    "agent_full" to value.agent?.full,
                     "agent_app" to value.agent?.software,
                     "agent_version" to value.agent?.version,
                     "genesis" to value.blockchain?.genesis
