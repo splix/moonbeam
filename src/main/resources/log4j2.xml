@@ -18,7 +18,7 @@
     </Appenders>
 
     <Loggers>
-        <Logger name="io.emeraldpay" level="${env:POLKADOTCRAWLER_LOG_LEVEL:-info}" additivity="false">
+        <Logger name="io.emeraldpay" level="${env:MOONBEAM_LOG_LEVEL:-info}" additivity="false">
             <AppenderRef ref="STDOUT"/>
             <AppenderRef ref="STDERR" level="warn"/>
         </Logger>

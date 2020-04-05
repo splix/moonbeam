@@ -1,8 +1,8 @@
-= Polkabot - Polkadot Network Crawler
+= Moonbeam - Polkadot Network Crawler
 
-image:https://github.com/emeraldpay/polkabot/workflows/Tests/badge.svg["Unit Tests"]
-image:https://img.shields.io/docker/pulls/emeraldpay/polkabot?style=flat-square["Docker",link="https://hub.docker.com/r/emeraldpay/polkabot"]
-image:https://img.shields.io/github/license/emeraldpay/polkabot.svg?style=flat-square&maxAge=2592000["License",link="https://github.com/emeraldpay/polkabot/blob/master/LICENSE"]
+image:https://github.com/emeraldpay/moonbeam/workflows/Tests/badge.svg["Unit Tests"]
+image:https://img.shields.io/docker/pulls/emeraldpay/moonbeam?style=flat-square["Docker",link="https://hub.docker.com/r/emeraldpay/moonbeam"]
+image:https://img.shields.io/github/license/emeraldpay/moonbeam.svg?style=flat-square&maxAge=2592000["License",link="https://github.com/emeraldpay/moonbeam/blob/master/LICENSE"]
 image:https://badges.gitter.im/emeraldpay/community.svg[link="https://gitter.im/emeraldpay/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge]
 
 Crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
@@ -29,7 +29,7 @@ fully processed peers to the console.
 === Using Docker
 
 ----
-docker run -v $(pwd)/results:/results emeraldpay/polkabot
+docker run -v $(pwd)/results:/results emeraldpay/moonbeam
 ----
 
 === Using Gradle (from sources)
@@ -56,7 +56,7 @@ to the output, which can be used on the next run to keep the same `PeerId` and i
 [#export-json]
 === Export to JSON file
 
-Polkabot produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
+Moonbeam produces a log with all the details about the peers it had connected to. The log is JSON items separated by a
 new line.
 
 The log may contain multiple lines, even for the same remote peer. The main reason for that is because the bot periodically
@@ -67,7 +67,7 @@ connections, so another node can decide to connect to the bot based on its logic
 [source, json]
 ----
 {
-  "version":"https://schema.emeraldpay.io/polkabot",
+  "version":"https://schema.emeraldpay.io/moonbeam",
   "timestamp":"2020-03-06T05:07:42.280046Z",
   "peerId":"12D3KooWF5pLe2Vvj41GR3B77mwmp5afAQviMDiLYytbS36VSD2o",
   "agent":{
@@ -114,7 +114,7 @@ While most of the fields are self-explanatory, some of them need extra descripti
 | Field | Example Value | Description
 
 | `version`
-| `https://schema.emeraldpay.io/polkabot`
+| `https://schema.emeraldpay.io/moonbeam`
 | Version id for this file structure. If the schema of the file changed that breaks compatibility (i.e., fields are
 moved or renamed) - it gets a new unique id. Please note that at this stage of the development, the schema is not yet
 finalized.
@@ -151,7 +151,7 @@ Value range: `1m` to `24h`
 [#export-mysql]
 === Export to MySQL
 
-Polkabot can be configured to export nodes to a MySQL table.
+Moonbeam can be configured to export nodes to a MySQL table.
 
 .How it works:
 
@@ -200,11 +200,11 @@ CREATE TABLE `nodes` (
 | Enable/disable export to MySQL
 
 | `--export.mysql.url`
-| `localhost:3306/polkadot`
+| `localhost:3306/moonbeam`
 | URL to connect. Format `${HOST}:${PORT}/${DATABASE}`
 
 | `--export.mysql.username`
-| `polkadot`
+| `moonbeam`
 | Username
 
 | `--export.mysql.password`
@@ -214,16 +214,16 @@ CREATE TABLE `nodes` (
 
 .Example:
 ----
-docker run -v $(pwd)/results:/results emeraldpay/polkabot \
+docker run -v $(pwd)/results:/results emeraldpay/moonbeam \
    --export.mysql.enabled=true \
-   --export.mysql.url=10.0.2.100:3306/polkadot \
+   --export.mysql.url=10.0.2.100:3306/moonbeam \
    --export.mysql.password=123456
 ----
 
 [#export-s3]
 === Export to AWS S3
 
-Setup Polkabot to upload logs to the Amazon AWS S3 bucket. Please note that the files are uploaded once they are
+Setup Moonbeam to upload logs to the Amazon AWS S3 bucket. Please note that the files are uploaded once they are
 finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <<export-json>>
 
 .Run options
@@ -245,7 +245,7 @@ finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <
 
 | `--export.s3.path`
 |
-| (optional) Path prefix, i.e. a directory. Example: `--export.s3.path=polkadot/` (note trailing slash)
+| (optional) Path prefix, i.e. a directory. Example: `--export.s3.path=moonbeam/` (note trailing slash)
 
 | `--export.s3.accesskey` +
 `--export.s3.secretkey`
@@ -255,19 +255,19 @@ finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <
 
 .Example:
 ----
-docker run -v $(pwd)/results:/results emeraldpay/polkabot \
+docker run -v $(pwd)/results:/results emeraldpay/moonbeam \
   --export.s3.enabled=true \
   --export.s3.accesskey=AKIJF5KA05L1JAF \
   --export.s3.secretkey=i85aGTgtzh39t9+h8gka9bkbAEW1lgIYVC811Aoe \
   --export.s3.bucket=my-crawler-bucket \
   --export.s3.region=us-east-1 \
-  --export.s3.path=polkadot/
+  --export.s3.path=moonbeam/
 ----
 
 [#export-gcp-storage]
 === Export to GCP Storage
 
-Setup Polkabot to upload logs to the Google Cloud Storage bucket. Please note that the files are uploaded once they are
+Setup Moonbeam to upload logs to the Google Cloud Storage bucket. Please note that the files are uploaded once they are
 finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <<export-json>>
 
 .Run options
@@ -285,7 +285,7 @@ finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <
 
 | `--export.gs.path`
 |
-| (optional) Path prefix, i.e. a directory. Example: `--export.gs.path=polkadot/` (note trailing slash)
+| (optional) Path prefix, i.e. a directory. Example: `--export.gs.path=moonbeam/` (note trailing slash)
 
 | `--export.gs.credentials`
 |
@@ -294,11 +294,11 @@ finished (i.e. closed) by JSON exporter. By default it's every 60 minutes. See <
 
 .Example:
 ----
-docker run -v $(pwd)/results:/results -v $(pwd)/gcloud.json:/etc/polkabot/gcloud.json emeraldpay/polkabot \
+docker run -v $(pwd)/results:/results -v $(pwd)/gcloud.json:/etc/moonbeam/gcloud.json emeraldpay/moonbeam \
   --export.gs.enabled=true \
-  --export.gs.credentials=/etc/polkabot/gcloud.json \
+  --export.gs.credentials=/etc/moonbeam/gcloud.json \
   --export.gs.bucket=my-crawler-bucket \
-  --export.gs.path=polkadot/
+  --export.gs.path=moonbeam/
 ----
 
 == Monitoring
@@ -327,47 +327,47 @@ Application exports Prometheus compatible status at http://127.0.0.1:1234
 |===
 | Name | Labels | Type | Description
 
-| `polkabot_transfer_bytes_total`
+| `moonbeam_transfer_bytes_total`
 | `dir_conn` + `dir_trans`
 | Counter
 | Total Bytes transferred by the crawler.
 
-| `polkabot_msgs_total`
+| `moonbeam_msgs_total`
 | `dir_conn` + `dir_trans`
 | Counter
 | Total messages transferred
 
-| `polkabot_connection_errors_total`
+| `moonbeam_connection_errors_total`
 | `conn_err_type`
 | Counter
 | Connection errors, i.e. timeout, host inaccessible, etc
 
-| `polkabot_protocol_errors_total`
+| `moonbeam_protocol_errors_total`
 | `dir` + `proto_level`
 | Counter
 | Error specific for the libp2p or Polkadot protocol
 
-| `polkabot_discover_total`
+| `moonbeam_discover_total`
 |
 | Counter
 | Discovered addresses
 
-| `polkabot_connect_total`
+| `moonbeam_connect_total`
 | `dir`
 | Counter
 | Connections to peers
 
-| `polkabot_connect_ok_total`
+| `moonbeam_connect_ok_total`
 | `dir`
 | Counter
 | Successfully finished connections to peers
 
-| `polkabot_peers_reported_total`
+| `moonbeam_peers_reported_total`
 |
 | Histogram
 | How many neighbour peers were reported by a connection
 
-| `polkabot_connection_time_seconds`
+| `moonbeam_connection_time_seconds`
 |
 | Summary
 | Time spent on a connection. With the following quantiles: 90% (+/- 1%), 95% (+/- 0.5%), 99% (+/- 0.1%)
@@ -420,9 +420,9 @@ All of those metrics are available under `jvm_` namespace, or under `process_`.
   synchronization, which is especially crucial for a crawler to make sure it can process hundreds of peers and thousands
   of connections in parallel.
 - Because the libp2p library for JVM was not production ready at the moment of the development, the required subset of
-  the Libp2p protocol was implemented from scratch. Polkabot implementation has only part of the protocol that is specific
+  the Libp2p protocol was implemented from scratch. Moonbeam implementation has only part of the protocol that is specific
   for bot functionality and may be missing many other features.
-- A similar situation is for SCALE codec, which didn't have any implementation for JVM. Therefore Polkabot has its own
+- A similar situation is for SCALE codec, which didn't have any implementation for JVM. Therefore Moonbeam has its own
   small unoptimized implementation, which is suitable only for reading some types of messages that bot is accessing.
 - The bot is designed for aggressive use of the protocol, just to gather all important details from remotes. It doesn't
   follow some of the Libp2p and Substrate protocols guidelines, it uses many shortcuts and sometimes deliberately ignores
@@ -444,7 +444,7 @@ gradle jibDockerBuild
 
 ...
 
-docker run emeraldpay/polkabot
+docker run emeraldpay/moonbeam
 ----
 
 

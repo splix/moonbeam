@@ -24,7 +24,7 @@ plugins {
 }
 
 
-group = 'io.emeraldpay.polkadotcrawler'
+group = 'io.emeraldpay.moonbeam'
 version = '0.3-SNAPSHOT'
 
 targetCompatibility = '1.8'
@@ -121,7 +121,7 @@ processResources {
 }
 
 application {
-    mainClassName = 'io.emeraldpay.polkadotcrawler.StarterKt'
+    mainClassName = 'io.emeraldpay.moonbeam.StarterKt'
 }
 
 protobuf {
@@ -142,8 +142,8 @@ jib {
         image = 'openjdk:11-jdk-slim'
     }
     to {
-        image = 'emeraldpay/polkabot'
-        tags = ['2', 'beta']
+        image = 'emeraldpay/moonbeam'
+        tags = ['3', 'beta']
     }
     container {
         volumes = ["/results"]
