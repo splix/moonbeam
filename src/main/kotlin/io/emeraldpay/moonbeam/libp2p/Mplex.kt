@@ -1,6 +1,7 @@
 package io.emeraldpay.moonbeam.libp2p
 
 import io.emeraldpay.moonbeam.ByteBufferCommons
+import io.emeraldpay.moonbeam.Config
 import io.emeraldpay.moonbeam.DebugCommons
 import io.emeraldpay.moonbeam.monitoring.PrometheusMetric
 import org.reactivestreams.Publisher
@@ -20,6 +21,7 @@ class Mplex(val initiator: Boolean): AutoCloseable {
         private val log = LoggerFactory.getLogger(Mplex::class.java)
         private val EXECUTOR_SUBSCRIPTION = Executors.newFixedThreadPool(4, CustomizableThreadFactory("mplex-sub-"))
         private val VARINT_CONVERTER = SizePrefixed.VarintSize()
+        private val DEBUG = Config.NET_DEBUG && log.isDebugEnabled
     }
 
     private val seq = AtomicLong(1000)
@@ -31,7 +33,7 @@ class Mplex(val initiator: Boolean): AutoCloseable {
                 .flatMap {
                     Flux.fromIterable(parse(it))
                 }
-//                .doOnNext { msg -> DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false) }
+                .doOnNext { msg -> if (DEBUG) DebugCommons.trace("MPLEX ${msg.header.flag} ${msg.header.id}", msg.data, false) }
                 .publish().refCount(1, Duration.ofMillis(100))
     }
 
@@ -204,7 +206,7 @@ class Mplex(val initiator: Boolean): AutoCloseable {
             val close = Mono.just(Message(Header(Flag.close(initiator), streamId), ByteBuffer.allocate(0)))
             closed = true
             return Flux.concat(messages, close)
-//                    .doOnNext { msg -> DebugCommons.trace("MPLEX ${msg.header.flag} ${streamId}", msg.data, true) }
+                    .doOnNext { msg -> if (DEBUG) DebugCommons.trace("MPLEX ${msg.header.flag} ${streamId}", msg.data, true) }
                     .doOnNext {
                         PrometheusMetric.reportMessage(direction, PrometheusMetric.Dir.OUT, 1)
                     }

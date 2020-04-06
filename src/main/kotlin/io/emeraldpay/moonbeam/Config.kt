@@ -16,6 +16,10 @@ import java.util.*
 @EnableScheduling
 open class Config {
 
+    companion object {
+        const val NET_DEBUG = false
+    }
+
     private val log = LoggerFactory.getLogger(Config::class.java)
 
     @Bean
