@@ -145,7 +145,9 @@ jib {
         image = 'emeraldpay/moonbeam'
         tags = [project.version].with (true) {
             if (!project.hasProperty('latest') || project.property('latest') != 'true') {
-                add "t"+ DateTimeFormatter.ofPattern("yyyyMMddHHmm").withZone(ZoneId.of('UTC')).format(Instant.now())
+                add "t"+ java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmm")
+                        .withZone(java.time.ZoneId.of('UTC'))
+                        .format(java.time.Instant.now())
             }
             add project.version.toString().replaceAll('(\\d+\\.\\d+).+', '$1')
         }
