@@ -143,7 +143,19 @@ jib {
     }
     to {
         image = 'emeraldpay/moonbeam'
-        tags = ['3', 'beta']
+        tags = [project.version].with (true) {
+            if (!project.hasProperty('latest') || project.property('latest') != 'true') {
+                add "t"+ java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmm")
+                        .withZone(java.time.ZoneId.of('UTC'))
+                        .format(java.time.Instant.now())
+            }
+            add project.version.toString().replaceAll('(\\d+\\.\\d+).+', '$1')
+        }
+
+        auth {
+            username = 'splix'
+            password = System.getenv('DOCKER_KEY')
+        }
     }
     container {
         volumes = ["/results"]
