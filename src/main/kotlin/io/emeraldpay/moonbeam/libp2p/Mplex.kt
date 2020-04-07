@@ -19,7 +19,7 @@ class Mplex(val initiator: Boolean): AutoCloseable {
 
     companion object {
         private val log = LoggerFactory.getLogger(Mplex::class.java)
-        private val EXECUTOR_SUBSCRIPTION = Executors.newFixedThreadPool(4, CustomizableThreadFactory("mplex-sub-"))
+        private val RECEIVE_SCHEDULER = Schedulers.newBoundedElastic(8, Int.MAX_VALUE, "mplex-sub")
         private val VARINT_CONVERTER = SizePrefixed.VarintSize()
         private val DEBUG = Config.NET_DEBUG && log.isDebugEnabled
     }
@@ -77,7 +77,7 @@ class Mplex(val initiator: Boolean): AutoCloseable {
 
     fun <T> receiveStreams(handler: Handler<T>): Flux<T> {
         val f = Flux.from(input)
-                .subscribeOn(Schedulers.fromExecutor(EXECUTOR_SUBSCRIPTION))
+                .subscribeOn(RECEIVE_SCHEDULER)
                 .share().cache(1)
         val result = Flux.from(f)
                 .filter {

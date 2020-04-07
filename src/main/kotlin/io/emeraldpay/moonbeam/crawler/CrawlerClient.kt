@@ -70,10 +70,13 @@ class CrawlerClient(
             val client = TcpClient.create()
                     .host(host)
                     .port(port)
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 4000)
+                    .option(ChannelOption.AUTO_CLOSE, true)
+                    .option(ChannelOption.SO_KEEPALIVE, false)
                     .handle { inbound, outbound ->
-                        val x = handle(inbound, outbound, true)
-                        results.complete(Flux.from(x.t2))
-                        Flux.from(x.t1).onErrorResume { t ->
+                        val result = handle(inbound, outbound, true)
+                        results.complete(Flux.from(result.t2))
+                        Flux.from(result.t1).onErrorResume { t ->
                             if (t is IOException) {
                                 reportConnError(PrometheusMetric.ConnError.IO)
                                 log.debug("Failed to connect to $remote")
@@ -88,9 +91,9 @@ class CrawlerClient(
                         }
                     }
                     .connect()
-                    .doOnNext {
-                        this.connection = it
-                        it.onDispose().subscribe {
+                    .doOnNext { conn ->
+                        this.connection = conn
+                        conn.onDispose().subscribe {
                             log.debug("Disconnected from $remote")
                         }
                     }
@@ -99,7 +102,7 @@ class CrawlerClient(
                     .flatMapMany { it }
                     .onErrorResume(CancellationException::class.java) { Flux.empty<CrawlerData.Value<*>>() }
                     .doFinally {
-                        connection?.dispose()
+                        disconnect()
                     }
 
             return client.thenMany(data)
@@ -115,6 +118,8 @@ class CrawlerClient(
         } catch (e: Throwable) {
             reportConnError(PrometheusMetric.ConnError.INTERNAL)
             log.error("Unresolved exception ${e.javaClass.name}: ${e.message}")
+        } finally {
+            disconnect()
         }
 
         return Flux.empty()
@@ -191,8 +196,8 @@ class CrawlerClient(
                     .transform(SizePrefixed.TwoBytes().reader())
                     .transform(secureTransport.decoder())
                     .onErrorContinue { t, o ->
-                        reportProtocolError(proDirLabel,PrometheusMetric.ProtocolError.NOISE)
-                        log.warn("Packet decryption failed", t)
+                        reportProtocolError(proDirLabel, PrometheusMetric.ProtocolError.NOISE)
+                        log.debug("Packet decryption failed", t)
                     }
 //                    .transform(DebugCommons.traceByteBuf("decrypted", false))
 
@@ -266,6 +271,7 @@ class CrawlerClient(
                     // it.release()
                     copy.flip()
                 }
+                .publishOn(Schedulers.elastic())
                 .doOnNext {
                     reportConnBytes(proDirLabel, PrometheusMetric.Dir.IN, it.remaining())
                 }

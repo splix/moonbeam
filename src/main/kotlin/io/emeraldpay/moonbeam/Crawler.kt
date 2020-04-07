@@ -19,6 +19,7 @@ import io.emeraldpay.moonbeam.state.PeerDetails
 import io.libp2p.core.PeerId
 import io.libp2p.core.crypto.*
 import io.libp2p.core.multiformats.Multiaddr
+import io.netty.channel.ChannelOption
 import org.apache.commons.codec.binary.Hex
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -47,6 +48,11 @@ class Crawler(
     companion object {
         private val log = LoggerFactory.getLogger(Crawler::class.java)
     }
+
+    private val processDiscoveredScheduler = Schedulers.newParallel("process-found")
+    private val crawlerScheduler = Schedulers.newElastic("crawler-connect")
+    private val processResultScheduler = Schedulers.newParallel("process-result")
+    private val exportScheduler = Schedulers.newElastic("export")
 
     private val keys: Pair<PrivKey, PubKey>
     private var externalIp: String? = null
@@ -106,7 +112,7 @@ class Crawler(
 
     override fun run() {
         Flux.from(discovered.listen())
-                .subscribeOn(Schedulers.newSingle("crawler"))
+                .publishOn(processDiscoveredScheduler)
                 .filter(noRecentChecks)
                 .flatMap({
                     connect(it).onErrorResume { t ->
@@ -117,12 +123,12 @@ class Crawler(
                             log.warn("Failed to connect", t)
                         }
                         Mono.empty()
-                    }.subscribeOn(Schedulers.elastic())
+                    }.subscribeOn(crawlerScheduler)
                 }, 32)
                 .subscribe(connected)
 
         val result = Flux.from(connected)
-                .subscribeOn(Schedulers.newSingle("connected"))
+                .publishOn(processResultScheduler)
                 .doOnNext { monitoring.onPeerProcessed(it) }
                 .map(processor)
                 .onErrorContinue { t, _ -> log.error("Failed to process peer details", t) }
@@ -130,12 +136,12 @@ class Crawler(
                 .autoConnect()
 
         Flux.from(result)
-                .subscribeOn(Schedulers.newSingle("export-file"))
+                .publishOn(exportScheduler)
                 .subscribe(fileJsonExport)
 
         mysqlExport.getInstance()?.let { export ->
             Flux.from(result)
-                    .subscribeOn(Schedulers.newSingle("export-mysql"))
+                    .publishOn(exportScheduler)
                     .subscribe(export)
         }
 
@@ -151,7 +157,7 @@ class Crawler(
                     details.add(dht.data)
 
                     listOf(dht.data.closerPeersList, dht.data.providerPeersList).forEach { peers ->
-                        peers.flatMap {
+                        val addresses = peers.flatMap {
                             it.addrsList
                         }.mapNotNull {
                             try {
@@ -162,9 +168,8 @@ class Crawler(
                             }
                         }.filter {
                             publicPeersOnly.test(it)
-                        }.forEach {
-                            discovered.submit(it)
                         }
+                        discovered.submit(addresses)
                     }
                 }
 
@@ -226,6 +231,9 @@ class Crawler(
         val server = TcpServer.create()
                 .host("0.0.0.0")
                 .port(port)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 4000)
+                .option(ChannelOption.AUTO_CLOSE, true)
+                .option(ChannelOption.SO_KEEPALIVE, false)
                 .handle { inbound, outbound ->
                     PrometheusMetric.reportConnection(PrometheusMetric.Dir.IN)
                     var remote: Multiaddr? = null
