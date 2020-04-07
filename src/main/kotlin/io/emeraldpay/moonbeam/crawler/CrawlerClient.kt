@@ -155,6 +155,8 @@ class CrawlerClient(
                                             "/substrate/ksmcc3/6"
                                     )))
                                     return@switchOnFirst Flux.concat(start, protocols)
+                                } else if (msg.endsWith("/polkadot/1") || msg.endsWith("/polkadot/legacy/1") || msg.endsWith("/paritytech/grandpa/1")) {
+                                    return@switchOnFirst Mono.just(multistream.decline())
                                 } else {
                                     reportProtocolError(proDirLabel, PrometheusMetric.ProtocolError.MPLEX)
                                     log.debug("Request to an unsupported protocol [$msg] from $remote")
