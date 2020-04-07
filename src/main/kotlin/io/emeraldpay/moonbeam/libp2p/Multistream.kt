@@ -218,7 +218,7 @@ class Multistream {
      * @param includesSizePrefix (optional, default true) if true then expect that each protocol line starts with it's length
      * @param onFound (option) additional publisher to subscribe when protocol found
      */
-    fun readProtocol(protocol: String?, includesSizePrefix: Boolean = true, onFound: Mono<Void>? = null): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
+    fun readProtocol(protocol: String?, includesSizePrefix: Boolean = true, onFound: Runnable? = null): Function<Flux<ByteBuffer>, Flux<ByteBuffer>> {
         var headerBuffer: ByteBuffer? = null
 
         var headerSize = NAME_BYTES.size + NL_SIZE
@@ -281,11 +281,8 @@ class Multistream {
                                 return@flatMap Mono.error<ByteBuffer>(IllegalStateException("Received invalid header"))
                             }
                             result = ByteBufferCommons.copy(ref, ref.remaining())
-                            if (onFound != null) {
-                                onFound.thenReturn(result)
-                            } else {
-                                Mono.just(result)
-                            }
+                            onFound?.run()
+                            Mono.just(result)
                         }
                     }
                     .filter {

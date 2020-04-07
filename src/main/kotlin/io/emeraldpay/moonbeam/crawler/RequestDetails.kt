@@ -12,7 +12,6 @@ import reactor.util.function.Tuples
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.time.Duration
-import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 
 /**
@@ -68,10 +67,13 @@ abstract class RequestDetails<T>(
 
         val stream = mplex.newStream(Mono.just(MULTISTREAM.multistreamHeader(proposeProtocol())))
 
-        // wait for header received, then .start() requests
-        val headerReceived = CompletableFuture<Boolean>()
-        stream.send(Mono.fromCompletionStage(headerReceived).thenMany(start()))
-        val onHeaderFound = Mono.just(headerReceived).doOnNext { it.complete(true) }.then()
+        // waits for the header received, then connects to the starting commands
+        val started = Flux.from(start()).publish()
+        val onHeaderFound = Runnable {
+            started.connect()
+        }
+
+        stream.send(started)
 
         val result = Flux.from(stream.inbound)
                 .transform(SIZE_SPLIT)
