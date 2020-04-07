@@ -74,8 +74,8 @@ class PrometheusMetric {
             protocolErrors.labels(direction.id, zone.id).inc()
         }
 
-        fun reportDiscovered() {
-            discovered.inc()
+        fun reportDiscovered(count: Int) {
+            discovered.inc(count.toDouble())
         }
 
         fun reportConnection(direction: Dir) {
