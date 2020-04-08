@@ -1,0 +1,29 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    json:
+      ## put data into json field, to avoid conflicts with standard fields. Rename it later
+      keys_under_root: false
+    paths:
+      - /inputs/*.log
+
+processors:
+  - timestamp:
+      field: json.timestamp
+      layouts:
+        - '2006-01-02T15:04:05Z'
+        - '2006-01-02T15:04:05.999Z'
+      test:
+        - '2020-04-07T02:29:22.126390Z'
+  - rename:
+      fields:
+        - from: "json"
+          to: "moonbeam"
+  - drop_fields:
+      fields:
+        - "moonbeam.protocols.versions"
+
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  username: "elastic"
+  password: "changeme"

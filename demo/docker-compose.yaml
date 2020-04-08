@@ -1,0 +1,93 @@
+version: '3.7'
+services:
+  moonbeam:
+    image: emeraldpay/moonbeam
+    command:
+      - '--export.file.targetdir=/var/log'
+      - '--prometheus.host=0.0.0.0'
+    ports:
+      - 30100:30100
+      - 1234:1234
+    volumes:
+      - ./volumes/log:/var/log
+    networks:
+      - back-tier
+
+  prometheus:
+    image: prom/prometheus:v2.1.0
+    volumes:
+      - ./config/prometheus/:/etc/prometheus/
+      - ./volumes/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yaml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - 9090:9090
+    depends_on:
+      - moonbeam
+    networks:
+      - back-tier
+    restart: always
+
+  grafana:
+    image: grafana/grafana
+    user: "104"
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    volumes:
+      - ./volumes/grafana:/var/lib/grafana
+      - ./config/grafana/:/etc/grafana/provisioning/
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: demo
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    networks:
+      - back-tier
+      - front-tier
+    restart: always
+
+  filebeat:
+      image: docker.elastic.co/beats/filebeat:7.6.2
+      volumes:
+        - ./volumes/log:/inputs
+        - ./config/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+        - ./volumes/filebeat_data:/usr/share/filebeat/data
+        - ./volumes/filebeat_logs:/usr/share/filebeat/logs
+      networks:
+        - back-tier
+      depends_on:
+        - elasticsearch
+
+  elasticsearch:
+    image: elasticsearch:7.6.2
+    volumes:
+      - ./config/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./volumes/elasticsearch:/usr/share/elasticsearch/data/
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+      ELASTIC_PASSWORD: changeme
+      discovery.type: single-node
+    networks:
+      - back-tier
+
+  kibana:
+    image: kibana:7.6.2
+    volumes:
+      - ./config/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml
+    ports:
+      - 5601:5601
+    networks:
+      - back-tier
+      - front-tier
+    depends_on:
+      - elasticsearch
+
+networks:
+  front-tier:
+  back-tier:

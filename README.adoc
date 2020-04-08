@@ -1,4 +1,8 @@
 = Moonbeam - Polkadot Network Crawler
+:imagesdir: .
+ifdef::env-github[]
+:imagesdir: https://raw.githubusercontent.com/emeraldpay/moonbeam/master
+endif::[]
 
 image:https://github.com/emeraldpay/moonbeam/workflows/Tests/badge.svg["Unit Tests"]
 image:https://img.shields.io/docker/pulls/emeraldpay/moonbeam?style=flat-square["Docker",link="https://hub.docker.com/r/emeraldpay/moonbeam"]
@@ -38,6 +42,16 @@ docker run -v $(pwd)/results:/results emeraldpay/moonbeam
 ----
 ./gradlew run
 ----
+
+=== Demo Setup
+
+For a detailed demo please see example in the link:demo/[`demo` directory]. This demo setup of Moonbeam shows basic
+integration with Grafana for monitoring of the process, and with Kibana to analyzer results of the crawler.
+
+image::demo/assets/kibana-discover.png[alt="", width=75%, align="center"]
+image::demo/assets/kibana-dashboard.png[alt="", width=75%, align="center"]
+
+See the demo: link:./demo[./demo]
 
 === Run Options
 

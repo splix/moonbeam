@@ -1,0 +1,13 @@
+global:
+  scrape_interval:     5s
+  external_labels:
+    monitor: 'moonbeam-demo'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: 'moonbeam'
+    static_configs:
+      - targets: ['moonbeam:1234']
+    metrics_path: /

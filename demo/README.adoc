@@ -1,0 +1,36 @@
+= Moonbean Demo
+:imagesdir: assets
+ifdef::env-github[]
+:imagesdir: https://raw.githubusercontent.com/emeraldpay/moonbeam/master/demo/assets
+endif::[]
+
+This demo setup of Moonbeam shows basic integration with Grafana for monitoring of the process, and with
+Kibana to analyzer results of the crawler.
+
+.Run
+----
+docker-compose up
+----
+
+== Monitoring with Grafana
+
+Grafana + Prometheus is a monitoring dashboard that shows the current metrics of an app, such as CPU load, throughput,
+and for our case amount of peers, connections, and so on.
+
+- URL: http://localhost:3000/
+- Username: admin
+- Password: demo
+
+image::grafana.png[alt="",width=80%,align="center"]
+
+== Analyze with Kibana
+
+Kibana + Elasticsearch + Filebeat is an indexing database for structured logs, which allows you to explore and
+visualize the gathered data.
+
+- URL: http://localhost:5601
+- Username: elastic
+- Password: changeme
+
+image::kibana-discover.png[alt="", width=80%, align="center"]
+image::kibana-dashboard.png[alt="", width=80%, align="center"]

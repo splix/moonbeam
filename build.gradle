@@ -160,5 +160,6 @@ jib {
     container {
         volumes = ["/results"]
         args = ["--export.file.targetdir=/results"]
+        ports = ["30100", "1234"]
     }
 }
