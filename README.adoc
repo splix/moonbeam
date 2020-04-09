@@ -171,12 +171,12 @@ Moonbeam can be configured to export nodes to a MySQL table.
 
 - The bot only appends a new information, and if you need to clean up the table, you have to run an external scheduled job to do so.
 - The table is going to have duplicate lines, appended each time the bot hit a peer. Use `SELECT DISTINCT` to get uniq peers.
-- Table name: *nodes*.
+- Table name: *moonbeam*.
 
 .Table definition SQL
 [source, sql]
 ----
-CREATE TABLE `nodes` (
+CREATE TABLE `moonbeam` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `found_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `ip` varchar(45) DEFAULT NULL,
@@ -223,7 +223,7 @@ CREATE TABLE `nodes` (
 
 | `--export.mysql.password`
 |
-| User password
+| Password
 |===
 
 .Example:

@@ -112,7 +112,7 @@ class MysqlExport(
     class MysqlSubscriber(jdbc: JdbcTemplate): Subscriber<ProcessedPeerDetails> {
 
         private val insert = SimpleJdbcInsert(jdbc)
-                .withTableName("nodes")
+                .withTableName("moonbeam")
                 .usingGeneratedKeyColumns("id")
 
         override fun onComplete() {
