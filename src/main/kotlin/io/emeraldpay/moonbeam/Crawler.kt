@@ -21,6 +21,7 @@ import io.libp2p.core.crypto.*
 import io.libp2p.core.multiformats.Multiaddr
 import io.netty.channel.ChannelOption
 import org.apache.commons.codec.binary.Hex
+import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
@@ -61,7 +62,7 @@ class Crawler(
     private val connected = TopicProcessor.create<PeerDetails>()
 
     init {
-        if (key == "RANDOM") {
+        if (key == "RANDOM" || StringUtils.isEmpty(key)) {
             keys = generateKeyPair(KEY_TYPE.ED25519)
             log.warn("Using new random key for the bot. It's recommended to reuse private key between restarts by specifying --key=PRIVATE_KEY_HEX")
             log.warn("To reuse current key specify it as --key=${Hex.encodeHexString(marshalPrivateKey(keys.first))}")
