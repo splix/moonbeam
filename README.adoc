@@ -42,13 +42,13 @@ docker run -v $(pwd)/results:/results emeraldpay/moonbeam
 
 === As application
 
-Download a zip with the latest application from https://github.com/emeraldpay/moonbeam/releases (ex. `moonbeam-0.3.zip`) and unpack it.
+Download a zip with the latest application from https://github.com/emeraldpay/moonbeam/releases (ex. `moonbeam-0.3.0.zip`) and unpack it.
 
 .Download and unpack
 ----
-wget https://github.com/emeraldpay/moonbeam/releases/download/v0.3.0/moonbeam-0.3.zip
-unzip moonbeam-0.3.zip
-cd moonbeam-0.3
+wget https://github.com/emeraldpay/moonbeam/releases/download/v0.3.0/moonbeam-0.3.0.zip
+unzip moonbeam-0.3.0.zip
+cd moonbeam-0.3.0
 ----
 
 .Run
