@@ -37,10 +37,19 @@ class FileJsonExport(
                 .ofPattern("yyyy-MM-dd'T'HH-mm-ss") // use '-' as separator for compatibility with Windows filesystem (no ':')
                 .withLocale( Locale.ENGLISH ) // just to make sure
                 .withZone( ZoneId.systemDefault() )
+
+        private val SUFFIX_CHARS = "1234567890qwertyuiopasdfghjklzxcvbnm".toCharArray()
+        private const val SUFFIX_LEN = 8
+        private val RND = Random()
     }
 
     private var out: ExportFile? = null
     private val timeLimit: Duration = parseTimeLimit(timeLimitStr)
+
+    /**
+     * Random suffix uniq per instance, to avoid collision if multiple crawlers are running
+     */
+    private val suffix: String = createSuffix()
 
     init {
         if (!dir.exists()) {
@@ -71,7 +80,7 @@ class FileJsonExport(
         if (out != null) {
             return
         }
-        val path = File(dir, "peers."+FILE_DATE_FORMAT.format(Instant.now()) + ".json.log")
+        val path = File(dir, "moonbeam." + FILE_DATE_FORMAT.format(Instant.now()) + "." + suffix + ".json.log")
         if (path.exists()) {
             if (path.isDirectory) {
                 throw IllegalStateException("Path ${path.absolutePath} is already exists and is a directory")
@@ -88,6 +97,14 @@ class FileJsonExport(
                 path,
                 filePostprocessing
         )
+    }
+
+    private fun createSuffix(): String {
+        val result = CharArray(SUFFIX_LEN)
+        for (i in 0 until SUFFIX_LEN) {
+            result[i] = SUFFIX_CHARS[RND.nextInt(SUFFIX_CHARS.size)]
+        }
+        return String(result)
     }
 
     override fun onSubscribe(s: Subscription) {

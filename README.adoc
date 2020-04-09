@@ -81,7 +81,16 @@ The log may contain multiple lines, even for the same remote peer. The main reas
 reconnects to peers, to check for availability and updates. Another reason is that the bot is also listening for incoming
 connections, so another node can decide to connect to the bot based on its logic.
 
-.Example:
+To specify the directory use `--export.file.targetdir=/path/to/dir`, see other options below.
+
+Example log file: `/val/log/moonbeam.2020-04-08T21-45-21.i5w4gj2r.json.log`, where:
+
+- `moonbeam` standard prefix for all logs
+- `2020-04-08T21-45-21` timestamp when file was created, as `yyyy-MM-dd'T'HH-mm-ss`
+- `i5w4gj2r` alphanumeric random uniq instance id, to avoid conflicts if many crawlers are running (or when multiple
+results are stored in an archive)
+
+.Sample line from the log:
 [source, json]
 ----
 {
@@ -124,6 +133,8 @@ connections, so another node can decide to connect to the bot based on its logic
 }
 ----
 
+NOTE: The JSON in the actual log would be JSON one-liners, i.e., __not__ pretty-printed and have `\n` at the end of the line
+
 While most of the fields are self-explanatory, some of them need extra description. Please see below.
 
 .JSON Format
@@ -163,7 +174,8 @@ finalized.
 | `--export.file.timelimit`
 | `60m`
 | Max time period to log into a single file. I.e., by default a new log file will be created every 60 minutes.
-Value range: `1m` to `24h`
+If you export to AWS S3/GCP Storage, it's the time after which the file is closed and uploaded. +
+Value range: `1m` to `24h`.
 |===
 
 [#export-mysql]
