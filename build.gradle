@@ -136,6 +136,10 @@ afterEvaluate {
     generateProto.dependsOn(clean)
 }
 
+jar {
+    enabled=true
+}
+
 jib {
     from {
         // can also be openjdk:13-alpine, but bouncycastle may be not fully compatible with Java 13 yet; there is no 11-alpine
