@@ -26,9 +26,10 @@ class GoogleStorageExport(
         private val log = LoggerFactory.getLogger(GoogleStorageExport::class.java)
     }
 
+    val enabled = env.getProperty("export.gs.enabled", Boolean::class.java, false)
+
     @PostConstruct
     fun start() {
-        val enabled = env.getProperty("export.gs.enabled", Boolean::class.java, false)
         if (!enabled) {
             return
         }

@@ -23,4 +23,8 @@ class FilePostprocessing {
         return Flux.from(files)
     }
 
+    fun stop() {
+        files.onComplete()
+    }
+
 }

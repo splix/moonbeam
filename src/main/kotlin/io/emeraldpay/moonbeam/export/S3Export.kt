@@ -25,9 +25,10 @@ class S3Export(
         private val log = LoggerFactory.getLogger(S3Export::class.java)
     }
 
+    val enabled = env.getProperty("export.s3.enabled", Boolean::class.java, false)
+
     @PostConstruct
     fun start() {
-        val enabled = env.getProperty("export.s3.enabled", Boolean::class.java, false)
         if (!enabled) {
             return
         }

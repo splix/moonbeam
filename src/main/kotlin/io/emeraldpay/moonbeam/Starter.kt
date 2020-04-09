@@ -26,9 +26,12 @@ import java.util.concurrent.CancellationException
 @Import(Config::class)
 open class Starter
 
-private val log = LoggerFactory.getLogger(Starter::class.java)
 
 fun main(args: Array<String>) {
+    //Otherwise Error: Unable to register Log4j shutdown hook because JVM is shutting down. Using SimpleLogger
+    System.setProperty("log4j.shutdownHookEnabled", "false");
+    val log = LoggerFactory.getLogger(Starter::class.java)
+
     val app = SpringApplication(Starter::class.java)
     app.setBanner(ResourceBanner(ClassPathResource("banner.txt")))
     val ctx = app.run(*args)

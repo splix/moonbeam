@@ -17,6 +17,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
+import javax.annotation.PreDestroy
 
 /**
  * Subscriber that export peers to a file on local filesystem
@@ -45,6 +46,8 @@ class FileJsonExport(
 
     private var out: ExportFile? = null
     private val timeLimit: Duration = parseTimeLimit(timeLimitStr)
+    private var subscription: Subscription? = null
+    private var started = false
 
     /**
      * Random suffix uniq per instance, to avoid collision if multiple crawlers are running
@@ -57,6 +60,15 @@ class FileJsonExport(
                 throw IllegalArgumentException("Unable to create ${dir.absolutePath} directory")
             }
         }
+    }
+
+    fun stop() {
+        log.info("Stopping the export...")
+        subscription?.cancel()
+        started = false
+        out?.close()
+        out = null
+        filePostprocessing.stop()
     }
 
     override fun onComplete() {
@@ -108,10 +120,15 @@ class FileJsonExport(
     }
 
     override fun onSubscribe(s: Subscription) {
+        subscription = s
+        started = true
         s.request(Long.MAX_VALUE)
     }
 
     override fun onNext(t: ProcessedPeerDetails) {
+        if (!started) {
+            return
+        }
         ensureOutput()
         out?.out?.let { w ->
             val json = PeerDetailsJson.from(t)
