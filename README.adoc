@@ -9,17 +9,21 @@ image:https://img.shields.io/docker/pulls/emeraldpay/moonbeam?style=flat-square[
 image:https://img.shields.io/github/license/emeraldpay/moonbeam.svg?style=flat-square&maxAge=2592000["License",link="https://github.com/emeraldpay/moonbeam/blob/master/LICENSE"]
 image:https://badges.gitter.im/emeraldpay/community.svg[link="https://gitter.im/emeraldpay/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge]
 
-Crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
-details about the node (software version, etc) and its peers to continue scan.
+Emerald Moonbeam is a crawler to gather the network information of the Polkadot nodes. The crawler connects to each available node, gets the
+details about the node (software version, etc) and its peers to continue crawling.
+
+The current implementation is targeting the Kusama network (i.e. uses its bootnodes, follows compatible nodes, executes
+specific commands, etc), but later it may be adapted for other Polkadot/Substrate based blockchains.
 
 NOTE: The project is in an _early stage_ of development. Configuration, run arguments and output format may be changed
       without backward compatibility.
 
 .Features:
 - Works on the protocol (libp2p/substrate/polkadot) level, emulates behaviour of a node
-- Extracts node details, user software, and synchronized blockchain details
-- Exports found nodes to
-** a local file in JSON format
+- Starting from a bootstrap list, it discovers new nodes and connects to each
+- Extracts each node details, such as used software, supported protocols and current blockchain
+- Exports gathered details as
+** a local log file in JSON format
 ** MySQL table
 ** AWS S3
 ** GCP Storage
@@ -317,7 +321,7 @@ docker run -v $(pwd)/results:/results -v $(pwd)/gcloud.json:/etc/moonbeam/gcloud
 
 == Monitoring
 
-=== Monitor with Prometheus
+=== Service monitoring with Prometheus
 
 Application exports Prometheus compatible status at http://127.0.0.1:1234
 
@@ -418,6 +422,62 @@ In addition to the metrics above the application exports JVM metrics (such as me
 and process (file descriptors, etc) metrics.
 All of those metrics are available under `jvm_` namespace, or under `process_`.
 
+== Configuration File
+
+Instead of passing configuration as command line options, all of them could be specified with a config file and
+pass a path to it as `--spring.config.location=PATH_TO_FILE`.
+
+.Example `moonbeam.properties`
+[source, properties]
+----
+## Main Configuration
+# Port to listen for connections
+port=30100
+# Private key to use, otherwise a new random key generated
+key=
+
+## Prometheus Monitoring
+prometheus.host=127.0.0.1
+prometheus.port=1234
+
+## Export ot JSON
+# Directory for files
+export.file.targetdir=/var/log
+# Time limite for a file, after which a new file is created
+export.file.timelimit=60m
+
+## Export to MySQL
+export.mysql.enabled=false
+# Url to the database
+export.mysql.url=jdbc:mysql://localhost:3306/moonbeam
+# Username
+export.mysql.username=moonbeam
+# Password
+export.mysql.password=
+
+## Export ot AWS S3
+export.s3.enabled=false
+# AWS region with the bucket
+export.s3.region=us-east-1
+# Bucket to use
+export.s3.bucket=
+# Path on the bucket
+export.s3.path=
+# AWS Auth Key
+export.s3.accesskey=
+# AWS Auth Key Secret
+export.s3.secretkey=
+
+## Export to GCP Storage
+export.gs.enabled=false
+# Bucket to use
+export.gs.bucket=
+# Path on the bucket
+export.gs.path=
+# Path to JSON file with credentials
+export.gs.credentials=
+----
+
 == Development
 
 === Design overview
@@ -427,6 +487,12 @@ All of those metrics are available under `jvm_` namespace, or under `process_`.
 - Gradle 5.6+
 - (optional) port 30100 accessible from the internet to accept incoming connections
 
+.Frameworks and Libraries
+- Kotlin
+- Spring Boot + Spring Framework
+- Spring Reactor + Netty
+- `io.libp2p:jvm-libp2p-minimal` for libp2p types/structures (_provided transport/security are not used, Moonbeam has own implementation_)
+- Groovy + Spock Framework for testing
 
 .Design decisions:
 - Uses https://projectreactor.io/[Spring Reactor] and https://en.wikipedia.org/wiki/Reactive_Streams[reactive streams] idea
@@ -461,10 +527,16 @@ gradle jibDockerBuild
 docker run emeraldpay/moonbeam
 ----
 
+== Commercial Support
+
+Want to support the project, prioritize a specific feature, or get commercial help with using Moonbeam in your project?
+Please contact splix@emeraldpay.io to discuss the possibility
 
 == License
 
 The core project code is released under Apache 2.0 license.
 
+Demo and docs are published under CC0 license + additionally Apache 2.0 for code parts in the examples/demo.
+
 File `src/proto/dht.proto`, with the definition of DHT Protobuf messages, is taken from libp2p specification and has
-the same license as it specified for the specification.
+the same license as it specified for the libp2p specification.
