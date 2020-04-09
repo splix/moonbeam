@@ -40,7 +40,23 @@ fully processed peers to the console.
 docker run -v $(pwd)/results:/results emeraldpay/moonbeam
 ----
 
-=== Using Gradle (from sources)
+=== As application
+
+Download a zip with the latest application from https://github.com/emeraldpay/moonbeam/releases (ex. `moonbeam-0.3.zip`) and unpack it.
+
+.Download and unpack
+----
+wget https://github.com/emeraldpay/moonbeam/releases/download/v0.3.0/moonbeam-0.3.zip
+unzip moonbeam-0.3.zip
+cd moonbeam-0.3
+----
+
+.Run
+----
+./bin/moonbeam
+----
+
+=== From sources
 
 .Run (and build) with command:
 ----
@@ -455,7 +471,7 @@ prometheus.port=1234
 ## Export ot JSON
 # Directory for files
 export.file.targetdir=/var/log
-# Time limite for a file, after which a new file is created
+# Time limit for a file, after which a new file is created
 export.file.timelimit=60m
 
 ## Export to MySQL
